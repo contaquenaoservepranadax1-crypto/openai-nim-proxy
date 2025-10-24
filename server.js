@@ -36,7 +36,7 @@ function estimateTokens(text) {
 }
 
 // ✅ FUNÇÃO MELHORADA - Lógica inteligente para conversas longas
-function limitMessagesByTokens(messages, maxTokens = 16000) {
+function limitMessagesByTokens(messages, maxTokens = 6000) {
   if (!messages || messages.length === 0) return messages;
   
   const firstMessage = messages[0];
@@ -47,7 +47,7 @@ function limitMessagesByTokens(messages, maxTokens = 16000) {
   // - Se primeira mensagem é pequena (< 500 tokens), mantém
   // - Se primeira mensagem é grande OU conversa tem muitas mensagens, ignora primeira
   
-  const keepFirstMessage = firstMessageTokens < 2000 && messages.length < 200;
+  const keepFirstMessage = firstMessageTokens < 500 && messages.length < 150;
   
   let totalTokens = keepFirstMessage ? firstMessageTokens : 0;
   const keptMessages = [];
@@ -129,12 +129,12 @@ app.post('/v1/chat/completions', async (req, res) => {
       }
     }
     
-    const limitedMessages = limitMessagesByTokens(messages, 16000);
+    const limitedMessages = limitMessagesByTokens(messages, 6000);
     
     const nimRequest = {
       model: nimModel,
       messages: limitedMessages,
-      temperature: temperature || 1.0,
+      temperature: temperature || 0.6,
       max_tokens: max_tokens || 16384, // ✅ Aumentado para respostas completas
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
       stream: stream || false
