@@ -163,7 +163,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
     
     // ✅ Aplica limite inteligente de tokens no histórico
-    const limitedMessages = limitMessagesByTokens(messages, 6000);
+    // Para conversas MUITO longas (2000+ msgs), reduz para 3000 tokens
+    const limitedMessages = limitMessagesByTokens(messages, 3000);
     
     // Transform OpenAI request to NIM format
     const nimRequest = {
