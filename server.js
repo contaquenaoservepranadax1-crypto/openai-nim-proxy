@@ -20,26 +20,23 @@ const SHOW_REASONING = false; // Set to true to show reasoning with <think> tags
 // 🔥 THINKING MODE TOGGLE - Enables thinking for specific models that support it
 const ENABLE_THINKING_MODE = true; // Set to true to enable chat_template_kwargs thinking parameter
 
-// Model mapping (adjust based on available NIM models)
-// 🎭 TABELA DE MODELOS PARA ROLEPLAY - Escolha no Janitor AI!
-const MODEL_MAPPING = {
-  // ⭐ TIER S - OS MELHORES (escolha um desses no Janitor)
 
-  // 📦 MODELOS PADRÃO (compatibilidade OpenAI/Claude/Gemini)
-  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',           // Mapeia GPT-3.5 → Llama 3.3
-  'gpt-4': 'meta/llama-3.3-70b-instruct',                   // Mapeia GPT-4 → Llama 3.3
-  'gpt-4-turbo': 'nvidia/llama-3.1-nemotron-70b-instruct',  // Mapeia GPT-4-Turbo → Nemotron
-  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus               
-  'claude-3-opus': 'meta/llama-3.1-405b-instruct',          // Mapeia Claude Opus → Llama 405B
-  'claude-3-sonnet': 'qwen/qwen2.5-72b-instruct',           // Mapeia Claude Sonnet → Qwen
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-70b-instruct'    // Mapeia Gemini → Nemotron
+// Model mapping
+const MODEL_MAPPING = {
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
+  'gpt-4-turbo': 'moonshotai/kimi-k2-instruct-0905',
+  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
+  'claude-3-opus': 'openai/gpt-oss-120b',
+  'claude-3-sonnet': 'openai/gpt-oss-20b',
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
 };
 
 // ✅ Função para estimar tokens de uma mensagem
 function estimateTokens(text) {
   // Estimativa: ~1 token = 4 caracteres (inglês/português)
   return Math.ceil(text.length / 4);
-}
+};
 
 // ✅ Função inteligente para limitar mensagens por tokens
 function limitMessagesByTokens(messages, maxTokens = 4000) {
