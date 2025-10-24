@@ -31,48 +31,46 @@ const MODEL_MAPPING = {
   'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
 };
 
+// ✅ Função para estimar tokens de uma mensagem
 function estimateTokens(text) {
+  // Estimativa: ~1 token = 4 caracteres (inglês/português)
   return Math.ceil(text.length / 4);
 }
 
-// ✅ FUNÇÃO MELHORADA - Lógica inteligente para conversas longas
+// ✅ Função inteligente para limitar mensagens por tokens
 function limitMessagesByTokens(messages, maxTokens = 6000) {
   if (!messages || messages.length === 0) return messages;
   
+  // Sempre mantém a primeira mensagem (contexto/system prompt)
   const firstMessage = messages[0];
-  const firstMessageTokens = estimateTokens(JSON.stringify(firstMessage));
   const restMessages = messages.slice(1);
   
-  // 🎯 ESTRATÉGIA ADAPTATIVA:
-  // - Se primeira mensagem é pequena (< 500 tokens), mantém
-  // - Se primeira mensagem é grande OU conversa tem muitas mensagens, ignora primeira
+  // Calcula tokens da primeira mensagem
+  let totalTokens = estimateTokens(JSON.stringify(firstMessage));
   
-  const keepFirstMessage = firstMessageTokens < 500 && messages.length < 150;
-  
-  let totalTokens = keepFirstMessage ? firstMessageTokens : 0;
+  // Array para mensagens que vão ser mantidas (começando do final)
   const keptMessages = [];
   
-  // Percorre de trás para frente pegando mensagens recentes
+  // Percorre de trás para frente (mantém mensagens mais recentes)
   for (let i = restMessages.length - 1; i >= 0; i--) {
     const message = restMessages[i];
     const messageTokens = estimateTokens(JSON.stringify(message));
     
+    // Se adicionar essa mensagem não ultrapassar o limite
     if (totalTokens + messageTokens <= maxTokens) {
-      keptMessages.unshift(message);
+      keptMessages.unshift(message); // Adiciona no início
       totalTokens += messageTokens;
     } else {
+      // Parar se atingiu o limite
       break;
     }
   }
   
-  // Retorna com ou sem primeira mensagem
-  if (keepFirstMessage) {
-    return [firstMessage, ...keptMessages];
-  } else {
-    return keptMessages;
-  }
+  // Retorna primeira mensagem + mensagens recentes que cabem
+  return [firstMessage, ...keptMessages];
 }
 
+// Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -82,6 +80,7 @@ app.get('/health', (req, res) => {
   });
 });
 
+// List models endpoint (OpenAI compatible)
 app.get('/v1/models', (req, res) => {
   const models = Object.keys(MODEL_MAPPING).map(model => ({
     id: model,
@@ -96,10 +95,12 @@ app.get('/v1/models', (req, res) => {
   });
 });
 
+// Chat completions endpoint (main proxy)
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
     
+    // Smart model selection with fallback
     let nimModel = MODEL_MAPPING[model];
     if (!nimModel) {
       try {
@@ -129,17 +130,20 @@ app.post('/v1/chat/completions', async (req, res) => {
       }
     }
     
+    // ✅ Aplica limite inteligente de tokens no histórico
     const limitedMessages = limitMessagesByTokens(messages, 6000);
     
+    // Transform OpenAI request to NIM format
     const nimRequest = {
       model: nimModel,
-      messages: limitedMessages,
+      messages: limitedMessages, // ✅ Usa mensagens limitadas
       temperature: temperature || 0.6,
-      max_tokens: max_tokens || 16384, // ✅ Aumentado para respostas completas
+      max_tokens: max_tokens || 8192, // ✅ Limite correto para DeepSeek Terminus
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
       stream: stream || false
     };
     
+    // Make request to NVIDIA NIM API
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
@@ -149,6 +153,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     });
     
     if (stream) {
+      // Handle streaming response with reasoning
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -158,13 +163,13 @@ app.post('/v1/chat/completions', async (req, res) => {
       
       response.data.on('data', (chunk) => {
         buffer += chunk.toString();
-        const lines = buffer.split('\n');
+        const lines = buffer.split('\\n');
         buffer = lines.pop() || '';
         
         lines.forEach(line => {
           if (line.startsWith('data: ')) {
             if (line.includes('[DONE]')) {
-              res.write(line + '\n');
+              res.write(line + '\\n');
               return;
             }
             
@@ -178,14 +183,14 @@ app.post('/v1/chat/completions', async (req, res) => {
                   let combinedContent = '';
                   
                   if (reasoning && !reasoningStarted) {
-                    combinedContent = '<think>\n' + reasoning;
+                    combinedContent = '<think>\\n' + reasoning;
                     reasoningStarted = true;
                   } else if (reasoning) {
                     combinedContent = reasoning;
                   }
                   
                   if (content && reasoningStarted) {
-                    combinedContent += '</think>\n\n' + content;
+                    combinedContent += '</think>\\n\\n' + content;
                     reasoningStarted = false;
                   } else if (content) {
                     combinedContent += content;
@@ -204,9 +209,9 @@ app.post('/v1/chat/completions', async (req, res) => {
                   delete data.choices[0].delta.reasoning_content;
                 }
               }
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
+              res.write(`data: ${JSON.stringify(data)}\\n\\n`);
             } catch (e) {
-              res.write(line + '\n');
+              res.write(line + '\\n');
             }
           }
         });
@@ -218,6 +223,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         res.end();
       });
     } else {
+      // Transform NIM response to OpenAI format with reasoning
       const openaiResponse = {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
@@ -227,7 +233,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           let fullContent = choice.message?.content || '';
           
           if (SHOW_REASONING && choice.message?.reasoning_content) {
-            fullContent = '<think>\n' + choice.message.reasoning_content + '\n</think>\n\n' + fullContent;
+            fullContent = '<think>\\n' + choice.message.reasoning_content + '\\n</think>\\n\\n' + fullContent;
           }
           
           return {
@@ -262,6 +268,7 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
 });
 
+// Catch-all for unsupported endpoints
 app.all('*', (req, res) => {
   res.status(404).json({
     error: {
