@@ -50,35 +50,55 @@ function estimateTokens(text) {
 }
 
 // ✅ Função inteligente para limitar mensagens por tokens
-function limitMessagesByTokens(messages, maxTokens = 6000) {
+function limitMessagesByTokens(messages, maxTokens = 3000) {
   if (!messages || messages.length === 0) return messages;
   
-  // Sempre mantém a primeira mensagem (contexto/system prompt)
-  const firstMessage = messages[0];
+  // 🎯 SISTEMA DE MEMÓRIA PRIORITÁRIA para conversas longas
+  // Sempre mantém: primeira mensagem + últimas mensagens mais relevantes
+  
+  const firstMessage = messages[0]; // System prompt / descrição do personagem
   const restMessages = messages.slice(1);
   
-  // Calcula tokens da primeira mensagem
-  let totalTokens = estimateTokens(JSON.stringify(firstMessage));
+  // Se a conversa tem MUITAS mensagens (2000+), prioriza apenas as recentes
+  if (restMessages.length > 100) {
+    // Pega apenas as últimas 60 mensagens + primeira
+    const recentMessages = restMessages.slice(-60);
+    
+    // Calcula tokens
+    let totalTokens = estimateTokens(JSON.stringify(firstMessage));
+    const keptMessages = [];
+    
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      const message = recentMessages[i];
+      const messageTokens = estimateTokens(JSON.stringify(message));
+      
+      if (totalTokens + messageTokens <= maxTokens) {
+        keptMessages.unshift(message);
+        totalTokens += messageTokens;
+      } else {
+        break;
+      }
+    }
+    
+    return [firstMessage, ...keptMessages];
+  }
   
-  // Array para mensagens que vão ser mantidas (começando do final)
+  // Para conversas normais (< 100 mensagens), usa o método padrão
+  let totalTokens = estimateTokens(JSON.stringify(firstMessage));
   const keptMessages = [];
   
-  // Percorre de trás para frente (mantém mensagens mais recentes)
   for (let i = restMessages.length - 1; i >= 0; i--) {
     const message = restMessages[i];
     const messageTokens = estimateTokens(JSON.stringify(message));
     
-    // Se adicionar essa mensagem não ultrapassar o limite
     if (totalTokens + messageTokens <= maxTokens) {
-      keptMessages.unshift(message); // Adiciona no início
+      keptMessages.unshift(message);
       totalTokens += messageTokens;
     } else {
-      // Parar se atingiu o limite
       break;
     }
   }
   
-  // Retorna primeira mensagem + mensagens recentes que cabem
   return [firstMessage, ...keptMessages];
 }
 
