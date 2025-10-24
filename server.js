@@ -20,8 +20,7 @@ const SHOW_REASONING = false; // Set to true to show reasoning with <think> tags
 // 🔥 THINKING MODE TOGGLE - Enables thinking for specific models that support it
 const ENABLE_THINKING_MODE = true; // Set to true to enable chat_template_kwargs thinking parameter
 
-
-// Model mapping
+// Model mapping (adjust based on available NIM models)
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
@@ -36,22 +35,25 @@ const MODEL_MAPPING = {
 function estimateTokens(text) {
   // Estimativa: ~1 token = 4 caracteres (inglês/português)
   return Math.ceil(text.length / 4);
-};
+}
 
 // ✅ Função inteligente para limitar mensagens por tokens
-function limitMessagesByTokens(messages, maxTokens = 4000) {
+function limitMessagesByTokens(messages, maxTokens = 6000) {
   if (!messages || messages.length === 0) return messages;
   
-  // 🎯 FOCO APENAS NAS MENSAGENS RECENTES
-  // Janitor AI já gerencia a descrição do personagem separadamente
-  // Então pegamos APENAS o histórico de conversa recente
+  // Sempre mantém a primeira mensagem (contexto/system prompt)
+  const firstMessage = messages[0];
+  const restMessages = messages.slice(1);
   
-  let totalTokens = 0;
+  // Calcula tokens da primeira mensagem
+  let totalTokens = estimateTokens(JSON.stringify(firstMessage));
+  
+  // Array para mensagens que vão ser mantidas (começando do final)
   const keptMessages = [];
   
   // Percorre de trás para frente (mantém mensagens mais recentes)
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
+  for (let i = restMessages.length - 1; i >= 0; i--) {
+    const message = restMessages[i];
     const messageTokens = estimateTokens(JSON.stringify(message));
     
     // Se adicionar essa mensagem não ultrapassar o limite
@@ -64,7 +66,8 @@ function limitMessagesByTokens(messages, maxTokens = 4000) {
     }
   }
   
-  return keptMessages;
+  // Retorna primeira mensagem + mensagens recentes que cabem
+  return [firstMessage, ...keptMessages];
 }
 
 // Health check endpoint
@@ -128,8 +131,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
     
     // ✅ Aplica limite inteligente de tokens no histórico
-    // Pega apenas mensagens recentes (Janitor gerencia descrição do personagem)
-    const limitedMessages = limitMessagesByTokens(messages, 4000);
+    const limitedMessages = limitMessagesByTokens(messages, 6000);
     
     // Transform OpenAI request to NIM format
     const nimRequest = {
