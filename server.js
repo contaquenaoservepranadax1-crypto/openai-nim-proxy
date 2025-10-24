@@ -36,7 +36,7 @@ function estimateTokens(text) {
 }
 
 // ✅ FUNÇÃO MELHORADA - Lógica inteligente para conversas longas
-function limitMessagesByTokens(messages, maxTokens = 6000) {
+function limitMessagesByTokens(messages, maxTokens = 16384) {
   if (!messages || messages.length === 0) return messages;
   
   const firstMessage = messages[0];
