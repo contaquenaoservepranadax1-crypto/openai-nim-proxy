@@ -23,24 +23,13 @@ const ENABLE_THINKING_MODE = true; // Set to true to enable chat_template_kwargs
 // Model mapping (adjust based on available NIM models)
 // 🎭 TABELA DE MODELOS PARA ROLEPLAY - Escolha no Janitor AI!
 const MODEL_MAPPING = {
-  // ⭐ TIER S - OS MELHORES (escolha um desses no Janitor)
-  'llama-fast': 'meta/llama-3.3-70b-instruct',              // ⚡ Rápido, criativo, excelente
-  'deepseek': 'deepseek-ai/deepseek-v3.1-terminus',         // 🧠 Melhor qualidade (quando funciona)
-  'nemotron': 'nvidia/llama-3.1-nemotron-70b-instruct',     // 💬 Ótimo para diálogo
-  
-  // 🔥 TIER A - MUITO BONS
-  'llama-405b': 'meta/llama-3.1-405b-instruct',             // 💪 Mais poderoso (lento)
-  'qwen': 'qwen/qwen2.5-72b-instruct',                      // ✍️ Criativo para narrativa
-  'nemotron-ultra': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // 🎯 Ultra detalhado
-  
-  // 📦 MODELOS PADRÃO (compatibilidade OpenAI/Claude/Gemini)
-  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',           // Mapeia GPT-3.5 → Llama 3.3
-  'gpt-4': 'meta/llama-3.3-70b-instruct',                   // Mapeia GPT-4 → Llama 3.3
-  'gpt-4-turbo': 'nvidia/llama-3.1-nemotron-70b-instruct',  // Mapeia GPT-4-Turbo → Nemotron
-  'gpt-4o': 'meta/llama-3.3-70b-instruct',                  // Mapeia GPT-4o → Llama 3.3
-  'claude-3-opus': 'meta/llama-3.1-405b-instruct',          // Mapeia Claude Opus → Llama 405B
-  'claude-3-sonnet': 'qwen/qwen2.5-72b-instruct',           // Mapeia Claude Sonnet → Qwen
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-70b-instruct'    // Mapeia Gemini → Nemotron
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
+  'gpt-4-turbo': 'moonshotai/kimi-k2-instruct-0905',
+  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
+  'claude-3-opus': 'openai/gpt-oss-120b',
+  'claude-3-sonnet': 'openai/gpt-oss-20b',
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
 };
 
 // ✅ Função para estimar tokens de uma mensagem
