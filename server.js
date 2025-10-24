@@ -61,7 +61,7 @@ function estimateTokens(text) {
 }
 
 // ✅ Função inteligente para limitar mensagens por tokens
-function limitMessagesByTokens(messages, maxTokens = 6000) {
+function limitMessagesByTokens(messages, maxTokens = 8192) {
   if (!messages || messages.length === 0) return messages;
   
   // 🎯 ESTRATÉGIA HÍBRIDA:
