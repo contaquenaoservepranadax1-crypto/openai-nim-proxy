@@ -20,39 +20,16 @@ const SHOW_REASONING = false; // Set to true to show reasoning with <think> tags
 // 🔥 THINKING MODE TOGGLE - Enables thinking for specific models that support it
 const ENABLE_THINKING_MODE = true; // Set to true to enable chat_template_kwargs thinking parameter
 
-// Model mapping (adjust based on available NIM models)
-// 🎯 O JANITOR AI ENVIA NOMES PADRÃO (gpt-4o, claude, etc)
-// O PROXY TRADUZ PARA OS MODELOS REAIS DA NVIDIA
-// ⚠️ NÃO MUDE OS NOMES DA ESQUERDA! Só mude os da direita para testar modelos diferentes
-
+// Model mapping
 const MODEL_MAPPING = {
-  // Mapeamento OpenAI
-  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',              // ⚡ Rápido e eficiente
-  'gpt-4': 'nvidia/llama-3.1-nemotron-70b-instruct',           // 💬 Ótimo para diálogo
-  'gpt-4-turbo': 'qwen/qwen2.5-72b-instruct',                  // ✍️ Criativo
-  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',              // 🧠 Melhor qualidade (usar este!)
-  
-  // Mapeamento Claude
-  'claude-3-opus': 'meta/llama-3.1-405b-instruct',             // 💪 Mais poderoso
-  'claude-3-sonnet': 'meta/llama-3.3-70b-instruct',            // ⚡ Balanceado
-  'claude-3-haiku': 'meta/llama-3.3-70b-instruct',             // ⚡ Rápido
-  
-  // Mapeamento Gemini
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',     // 🎯 Ultra detalhado
-  'gemini-1.5-pro': 'nvidia/llama-3.1-nemotron-70b-instruct'   // 💬 Conversação
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
+  'gpt-4-turbo': 'moonshotai/kimi-k2-instruct-0905',
+  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
+  'claude-3-opus': 'openai/gpt-oss-120b',
+  'claude-3-sonnet': 'openai/gpt-oss-20b',
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
 };
-
-// 📝 COMO TROCAR DE MODELO:
-// 1. No Janitor AI, você escolhe: gpt-4o (ou gpt-4, claude-3-opus, etc)
-// 2. O proxy pega o modelo da direita e envia para NVIDIA
-// 
-// EXEMPLOS DE MODELOS DISPONÍVEIS PARA TROCAR:
-// - 'meta/llama-3.3-70b-instruct'              ⚡ Rápido, criativo
-// - 'deepseek-ai/deepseek-v3.1-terminus'       🧠 Melhor qualidade (lento)
-// - 'nvidia/llama-3.1-nemotron-70b-instruct'   💬 Ótimo diálogo
-// - 'meta/llama-3.1-405b-instruct'             💪 Mais poderoso (muito lento)
-// - 'qwen/qwen2.5-72b-instruct'                ✍️ Narrativa criativa
-// - 'nvidia/llama-3.1-nemotron-ultra-253b-v1'  🎯 Ultra detalhado (bem lento)
 
 // ✅ Função para estimar tokens de uma mensagem
 function estimateTokens(text) {
