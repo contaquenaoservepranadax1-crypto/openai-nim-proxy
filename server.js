@@ -50,56 +50,32 @@ function estimateTokens(text) {
 }
 
 // ✅ Função inteligente para limitar mensagens por tokens
-function limitMessagesByTokens(messages, maxTokens = 3000) {
+function limitMessagesByTokens(messages, maxTokens = 4000) {
   if (!messages || messages.length === 0) return messages;
   
-  // 🎯 SISTEMA DE MEMÓRIA PRIORITÁRIA para conversas longas
-  // Sempre mantém: primeira mensagem + últimas mensagens mais relevantes
+  // 🎯 FOCO APENAS NAS MENSAGENS RECENTES
+  // Janitor AI já gerencia a descrição do personagem separadamente
+  // Então pegamos APENAS o histórico de conversa recente
   
-  const firstMessage = messages[0]; // System prompt / descrição do personagem
-  const restMessages = messages.slice(1);
-  
-  // Se a conversa tem MUITAS mensagens (2000+), prioriza apenas as recentes
-  if (restMessages.length > 100) {
-    // Pega apenas as últimas 60 mensagens + primeira
-    const recentMessages = restMessages.slice(-60);
-    
-    // Calcula tokens
-    let totalTokens = estimateTokens(JSON.stringify(firstMessage));
-    const keptMessages = [];
-    
-    for (let i = recentMessages.length - 1; i >= 0; i--) {
-      const message = recentMessages[i];
-      const messageTokens = estimateTokens(JSON.stringify(message));
-      
-      if (totalTokens + messageTokens <= maxTokens) {
-        keptMessages.unshift(message);
-        totalTokens += messageTokens;
-      } else {
-        break;
-      }
-    }
-    
-    return [firstMessage, ...keptMessages];
-  }
-  
-  // Para conversas normais (< 100 mensagens), usa o método padrão
-  let totalTokens = estimateTokens(JSON.stringify(firstMessage));
+  let totalTokens = 0;
   const keptMessages = [];
   
-  for (let i = restMessages.length - 1; i >= 0; i--) {
-    const message = restMessages[i];
+  // Percorre de trás para frente (mantém mensagens mais recentes)
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
     const messageTokens = estimateTokens(JSON.stringify(message));
     
+    // Se adicionar essa mensagem não ultrapassar o limite
     if (totalTokens + messageTokens <= maxTokens) {
-      keptMessages.unshift(message);
+      keptMessages.unshift(message); // Adiciona no início
       totalTokens += messageTokens;
     } else {
+      // Parar se atingiu o limite
       break;
     }
   }
   
-  return [firstMessage, ...keptMessages];
+  return keptMessages;
 }
 
 // Health check endpoint
@@ -163,8 +139,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
     
     // ✅ Aplica limite inteligente de tokens no histórico
-    // Para conversas MUITO longas (2000+ msgs), reduz para 3000 tokens
-    const limitedMessages = limitMessagesByTokens(messages, 3000);
+    // Pega apenas mensagens recentes (Janitor gerencia descrição do personagem)
+    const limitedMessages = limitMessagesByTokens(messages, 4000);
     
     // Transform OpenAI request to NIM format
     const nimRequest = {
