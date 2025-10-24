@@ -21,27 +21,38 @@ const SHOW_REASONING = false; // Set to true to show reasoning with <think> tags
 const ENABLE_THINKING_MODE = true; // Set to true to enable chat_template_kwargs thinking parameter
 
 // Model mapping (adjust based on available NIM models)
-// 🎭 TABELA DE MODELOS PARA ROLEPLAY - Escolha no Janitor AI!
+// 🎯 O JANITOR AI ENVIA NOMES PADRÃO (gpt-4o, claude, etc)
+// O PROXY TRADUZ PARA OS MODELOS REAIS DA NVIDIA
+// ⚠️ NÃO MUDE OS NOMES DA ESQUERDA! Só mude os da direita para testar modelos diferentes
+
 const MODEL_MAPPING = {
-  // ⭐ TIER S - OS MELHORES (escolha um desses no Janitor)
-  'llama-fast': 'meta/llama-3.3-70b-instruct',              // ⚡ Rápido, criativo, excelente
-  'deepseek': 'deepseek-ai/deepseek-v3.1-terminus',         // 🧠 Melhor qualidade (quando funciona)
-  'nemotron': 'nvidia/llama-3.1-nemotron-70b-instruct',     // 💬 Ótimo para diálogo
+  // Mapeamento OpenAI
+  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',              // ⚡ Rápido e eficiente
+  'gpt-4': 'nvidia/llama-3.1-nemotron-70b-instruct',           // 💬 Ótimo para diálogo
+  'gpt-4-turbo': 'qwen/qwen2.5-72b-instruct',                  // ✍️ Criativo
+  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',              // 🧠 Melhor qualidade (usar este!)
   
-  // 🔥 TIER A - MUITO BONS
-  'llama-405b': 'meta/llama-3.1-405b-instruct',             // 💪 Mais poderoso (lento)
-  'qwen': 'qwen/qwen2.5-72b-instruct',                      // ✍️ Criativo para narrativa
-  'nemotron-ultra': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // 🎯 Ultra detalhado
+  // Mapeamento Claude
+  'claude-3-opus': 'meta/llama-3.1-405b-instruct',             // 💪 Mais poderoso
+  'claude-3-sonnet': 'meta/llama-3.3-70b-instruct',            // ⚡ Balanceado
+  'claude-3-haiku': 'meta/llama-3.3-70b-instruct',             // ⚡ Rápido
   
-  // 📦 MODELOS PADRÃO (compatibilidade OpenAI/Claude/Gemini)
-  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',           // Mapeia GPT-3.5 → Llama 3.3
-  'gpt-4': 'meta/llama-3.3-70b-instruct',                   // Mapeia GPT-4 → Llama 3.3
-  'gpt-4-turbo': 'nvidia/llama-3.1-nemotron-70b-instruct',  // Mapeia GPT-4-Turbo → Nemotron
-  'gpt-4o': 'meta/llama-3.3-70b-instruct',                  // Mapeia GPT-4o → Llama 3.3
-  'claude-3-opus': 'meta/llama-3.1-405b-instruct',          // Mapeia Claude Opus → Llama 405B
-  'claude-3-sonnet': 'qwen/qwen2.5-72b-instruct',           // Mapeia Claude Sonnet → Qwen
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-70b-instruct'    // Mapeia Gemini → Nemotron
+  // Mapeamento Gemini
+  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',     // 🎯 Ultra detalhado
+  'gemini-1.5-pro': 'nvidia/llama-3.1-nemotron-70b-instruct'   // 💬 Conversação
 };
+
+// 📝 COMO TROCAR DE MODELO:
+// 1. No Janitor AI, você escolhe: gpt-4o (ou gpt-4, claude-3-opus, etc)
+// 2. O proxy pega o modelo da direita e envia para NVIDIA
+// 
+// EXEMPLOS DE MODELOS DISPONÍVEIS PARA TROCAR:
+// - 'meta/llama-3.3-70b-instruct'              ⚡ Rápido, criativo
+// - 'deepseek-ai/deepseek-v3.1-terminus'       🧠 Melhor qualidade (lento)
+// - 'nvidia/llama-3.1-nemotron-70b-instruct'   💬 Ótimo diálogo
+// - 'meta/llama-3.1-405b-instruct'             💪 Mais poderoso (muito lento)
+// - 'qwen/qwen2.5-72b-instruct'                ✍️ Narrativa criativa
+// - 'nvidia/llama-3.1-nemotron-ultra-253b-v1'  🎯 Ultra detalhado (bem lento)
 
 // ✅ Função para estimar tokens de uma mensagem
 function estimateTokens(text) {
@@ -50,56 +61,32 @@ function estimateTokens(text) {
 }
 
 // ✅ Função inteligente para limitar mensagens por tokens
-function limitMessagesByTokens(messages, maxTokens = 3000) {
+function limitMessagesByTokens(messages, maxTokens = 4000) {
   if (!messages || messages.length === 0) return messages;
   
-  // 🎯 SISTEMA DE MEMÓRIA PRIORITÁRIA para conversas longas
-  // Sempre mantém: primeira mensagem + últimas mensagens mais relevantes
+  // 🎯 FOCO APENAS NAS MENSAGENS RECENTES
+  // Janitor AI já gerencia a descrição do personagem separadamente
+  // Então pegamos APENAS o histórico de conversa recente
   
-  const firstMessage = messages[0]; // System prompt / descrição do personagem
-  const restMessages = messages.slice(1);
-  
-  // Se a conversa tem MUITAS mensagens (2000+), prioriza apenas as recentes
-  if (restMessages.length > 100) {
-    // Pega apenas as últimas 60 mensagens + primeira
-    const recentMessages = restMessages.slice(-60);
-    
-    // Calcula tokens
-    let totalTokens = estimateTokens(JSON.stringify(firstMessage));
-    const keptMessages = [];
-    
-    for (let i = recentMessages.length - 1; i >= 0; i--) {
-      const message = recentMessages[i];
-      const messageTokens = estimateTokens(JSON.stringify(message));
-      
-      if (totalTokens + messageTokens <= maxTokens) {
-        keptMessages.unshift(message);
-        totalTokens += messageTokens;
-      } else {
-        break;
-      }
-    }
-    
-    return [firstMessage, ...keptMessages];
-  }
-  
-  // Para conversas normais (< 100 mensagens), usa o método padrão
-  let totalTokens = estimateTokens(JSON.stringify(firstMessage));
+  let totalTokens = 0;
   const keptMessages = [];
   
-  for (let i = restMessages.length - 1; i >= 0; i--) {
-    const message = restMessages[i];
+  // Percorre de trás para frente (mantém mensagens mais recentes)
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
     const messageTokens = estimateTokens(JSON.stringify(message));
     
+    // Se adicionar essa mensagem não ultrapassar o limite
     if (totalTokens + messageTokens <= maxTokens) {
-      keptMessages.unshift(message);
+      keptMessages.unshift(message); // Adiciona no início
       totalTokens += messageTokens;
     } else {
+      // Parar se atingiu o limite
       break;
     }
   }
   
-  return [firstMessage, ...keptMessages];
+  return keptMessages;
 }
 
 // Health check endpoint
@@ -163,8 +150,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
     
     // ✅ Aplica limite inteligente de tokens no histórico
-    // Para conversas MUITO longas (2000+ msgs), reduz para 3000 tokens
-    const limitedMessages = limitMessagesByTokens(messages, 3000);
+    // Pega apenas mensagens recentes (Janitor gerencia descrição do personagem)
+    const limitedMessages = limitMessagesByTokens(messages, 4000);
     
     // Transform OpenAI request to NIM format
     const nimRequest = {
