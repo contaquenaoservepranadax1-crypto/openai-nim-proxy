@@ -18,7 +18,7 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 const SHOW_REASONING = false;
 
 // THINKING MODE TOGGLE
-const ENABLE_THINKING_MODE = false; // ✅ Desativado para velocidade
+const ENABLE_THINKING_MODE = false;
 
 // Model mapping
 const MODEL_MAPPING = {
@@ -28,33 +28,21 @@ const MODEL_MAPPING = {
   'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
   'claude-3-opus': 'openai/gpt-oss-120b',
   'claude-3-sonnet': 'openai/gpt-oss-20b',
-  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
 };
 
 function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-// ✅ FUNÇÃO MELHORADA - Lógica inteligente para conversas longas
-function limitMessagesByTokens(messages, maxTokens = 6000) {
+function limitMessagesByTokens(messages, maxTokens = 8000) {
   if (!messages || messages.length === 0) return messages;
   
-  const firstMessage = messages[0];
-  const firstMessageTokens = estimateTokens(JSON.stringify(firstMessage));
-  const restMessages = messages.slice(1);
-  
-  // 🎯 ESTRATÉGIA ADAPTATIVA:
-  // - Se primeira mensagem é pequena (< 500 tokens), mantém
-  // - Se primeira mensagem é grande OU conversa tem muitas mensagens, ignora primeira
-  
-  const keepFirstMessage = firstMessageTokens < 500 && messages.length < 150;
-  
-  let totalTokens = keepFirstMessage ? firstMessageTokens : 0;
+  let totalTokens = 0;
   const keptMessages = [];
   
-  // Percorre de trás para frente pegando mensagens recentes
-  for (let i = restMessages.length - 1; i >= 0; i--) {
-    const message = restMessages[i];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
     const messageTokens = estimateTokens(JSON.stringify(message));
     
     if (totalTokens + messageTokens <= maxTokens) {
@@ -65,12 +53,7 @@ function limitMessagesByTokens(messages, maxTokens = 6000) {
     }
   }
   
-  // Retorna com ou sem primeira mensagem
-  if (keepFirstMessage) {
-    return [firstMessage, ...keptMessages];
-  } else {
-    return keptMessages;
-  }
+  return keptMessages;
 }
 
 app.get('/health', (req, res) => {
@@ -129,13 +112,13 @@ app.post('/v1/chat/completions', async (req, res) => {
       }
     }
     
-    const limitedMessages = limitMessagesByTokens(messages, 6000);
+    const limitedMessages = limitMessagesByTokens(messages, 8000);
     
     const nimRequest = {
       model: nimModel,
       messages: limitedMessages,
       temperature: temperature || 0.6,
-      max_tokens: max_tokens || 16384, // ✅ Aumentado para respostas completas
+      max_tokens: max_tokens || 16384,
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
       stream: stream || false
     };
@@ -240,41 +223,4 @@ app.post('/v1/chat/completions', async (req, res) => {
           };
         }),
         usage: response.data.usage || {
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0
-        }
-      };
-      
-      res.json(openaiResponse);
-    }
-    
-  } catch (error) {
-    console.error('Proxy error:', error.message);
-    
-    res.status(error.response?.status || 500).json({
-      error: {
-        message: error.message || 'Internal server error',
-        type: 'invalid_request_error',
-        code: error.response?.status || 500
-      }
-    });
-  }
-});
-
-app.all('*', (req, res) => {
-  res.status(404).json({
-    error: {
-      message: `Endpoint ${req.path} not found`,
-      type: 'invalid_request_error',
-      code: 404
-    }
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`OpenAI to NVIDIA NIM Proxy running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`Reasoning display: ${SHOW_REASONING ? 'ENABLED' : 'DISABLED'}`);
-  console.log(`Thinking mode: ${ENABLE_THINKING_MODE ? 'ENABLED' : 'DISABLED'}`);
-});
+          prompt_tokens
