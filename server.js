@@ -18,7 +18,7 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 const SHOW_REASONING = false;
 
 // THINKING MODE TOGGLE
-const ENABLE_THINKING_MODE = true;
+const ENABLE_THINKING_MODE = false; // ✅ Desativado para velocidade
 
 // Model mapping
 const MODEL_MAPPING = {
@@ -35,15 +35,24 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
+// ✅ FUNÇÃO MELHORADA - Lógica inteligente para conversas longas
 function limitMessagesByTokens(messages, maxTokens = 6000) {
   if (!messages || messages.length === 0) return messages;
   
   const firstMessage = messages[0];
+  const firstMessageTokens = estimateTokens(JSON.stringify(firstMessage));
   const restMessages = messages.slice(1);
   
-  let totalTokens = estimateTokens(JSON.stringify(firstMessage));
+  // 🎯 ESTRATÉGIA ADAPTATIVA:
+  // - Se primeira mensagem é pequena (< 500 tokens), mantém
+  // - Se primeira mensagem é grande OU conversa tem muitas mensagens, ignora primeira
+  
+  const keepFirstMessage = firstMessageTokens < 500 && messages.length < 150;
+  
+  let totalTokens = keepFirstMessage ? firstMessageTokens : 0;
   const keptMessages = [];
   
+  // Percorre de trás para frente pegando mensagens recentes
   for (let i = restMessages.length - 1; i >= 0; i--) {
     const message = restMessages[i];
     const messageTokens = estimateTokens(JSON.stringify(message));
@@ -56,7 +65,12 @@ function limitMessagesByTokens(messages, maxTokens = 6000) {
     }
   }
   
-  return [firstMessage, ...keptMessages];
+  // Retorna com ou sem primeira mensagem
+  if (keepFirstMessage) {
+    return [firstMessage, ...keptMessages];
+  } else {
+    return keptMessages;
+  }
 }
 
 app.get('/health', (req, res) => {
@@ -121,7 +135,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       model: nimModel,
       messages: limitedMessages,
       temperature: temperature || 0.6,
-      max_tokens: max_tokens || 8192,
+      max_tokens: max_tokens || 16384, // ✅ Aumentado para respostas completas
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
       stream: stream || false
     };
