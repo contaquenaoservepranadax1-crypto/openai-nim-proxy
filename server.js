@@ -31,18 +31,21 @@ const MODEL_MAPPING = {
 
 // 🧹 LISTA DE FRASES TÉCNICAS PARA REMOVER
 const UNWANTED_PHRASES = [
-  /^Of course[.,!]?\s*/i,
-  /^Here is the response[.:,]?\s*/i,
-  /^Sure[.,!]?\s*/i,
-  /^Certainly[.,!]?\s*/i,
-  /^I understand[.,!]?\s*/i,
-  /^I'll help[.,!]?\s*/i,
-  /^Let me[.,!]?\s*/i,
-  /^I will[.,!]?\s*/i,
-  /^Okay[.,!]?\s*/i,
-  /^Alright[.,!]?\s*/i,
-  /^Got it[.,!]?\s*/i,
-  /^Understood[.,!]?\s*/i
+  /^Of course[.,!]?\s+/i,
+  /^Here is the response[.:,]?\s+/i,
+  /^Here is[.:,]?\s+/i,
+  /^Sure[.,!]?\s+/i,
+  /^Certainly[.,!]?\s+/i,
+  /^I understand[.,!]?\s+/i,
+  /^I'll help[.,!]?\s+/i,
+  /^Let me[.,!]?\s+/i,
+  /^I will[.,!]?\s+/i,
+  /^Okay[.,!]?\s+/i,
+  /^Alright[.,!]?\s+/i,
+  /^Got it[.,!]?\s+/i,
+  /^Understood[.,!]?\s+/i,
+  /^Here's[.,!]?\s+/i,
+  /^Here are[.,!]?\s+/i
 ];
 
 // 🧹 Função para limpar respostas técnicas
@@ -51,13 +54,15 @@ function cleanResponse(text) {
   
   let cleaned = text;
   
-  // Remove frases indesejadas do início
-  for (const pattern of UNWANTED_PHRASES) {
-    cleaned = cleaned.replace(pattern, '');
-  }
-  
-  // Remove espaços extras no início
-  cleaned = cleaned.trimStart();
+  // Remove frases indesejadas do início (múltiplas passadas para frases encadeadas)
+  let previousLength;
+  do {
+    previousLength = cleaned.length;
+    for (const pattern of UNWANTED_PHRASES) {
+      cleaned = cleaned.replace(pattern, '');
+    }
+    cleaned = cleaned.trimStart();
+  } while (cleaned.length !== previousLength && cleaned.length > 0);
   
   return cleaned;
 }
