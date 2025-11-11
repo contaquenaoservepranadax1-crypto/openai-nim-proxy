@@ -54,15 +54,17 @@ function cleanResponse(text) {
   
   let cleaned = text;
   
-  // Remove frases indesejadas do início (múltiplas passadas para frases encadeadas)
+  // Remove frases indesejadas do início (múltiplas passadas)
   let previousLength;
   do {
     previousLength = cleaned.length;
     for (const pattern of UNWANTED_PHRASES) {
       cleaned = cleaned.replace(pattern, '');
     }
-    cleaned = cleaned.trimStart();
   } while (cleaned.length !== previousLength && cleaned.length > 0);
+  
+  // Remove espaços extras no início apenas
+  cleaned = cleaned.replace(/^\s+/, '');
   
   return cleaned;
 }
@@ -145,7 +147,8 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       let buffer = '';
       let isFirstChunk = true;
-      let accumulatedContent = '';
+      let accumulatedText = '';
+      let cleanedFirstPart = false;
 
       response.data.on('data', chunk => {
         buffer += chunk.toString();
@@ -164,22 +167,22 @@ app.post('/v1/chat/completions', async (req, res) => {
             const delta = data.choices?.[0]?.delta;
             
             if (delta?.content) {
-              // 🧹 Acumula primeiros chunks para limpar
-              if (isFirstChunk || accumulatedContent.length < 100) {
-                accumulatedContent += delta.content;
+              // 🧹 Acumula e limpa apenas o INÍCIO da resposta
+              if (!cleanedFirstPart) {
+                accumulatedText += delta.content;
                 
-                // Quando acumular texto suficiente, limpa e envia
-                if (accumulatedContent.length >= 50) {
-                  const cleaned = cleanResponse(accumulatedContent);
-                  if (cleaned) {
-                    delta.content = cleaned;
-                    res.write(`data: ${JSON.stringify(data)}\n\n`);
-                  }
-                  accumulatedContent = '';
-                  isFirstChunk = false;
+                // Quando acumular 100+ caracteres, limpa UMA VEZ e libera
+                if (accumulatedText.length >= 100) {
+                  const cleaned = cleanResponse(accumulatedText);
+                  delta.content = cleaned;
+                  cleanedFirstPart = true;
+                  accumulatedText = '';
+                  
+                  if (!SHOW_REASONING) delete delta.reasoning_content;
+                  res.write(`data: ${JSON.stringify(data)}\n\n`);
                 }
               } else {
-                // Depois dos primeiros chunks, envia direto
+                // Após limpar primeira parte, passa tudo direto
                 if (!SHOW_REASONING) delete delta.reasoning_content;
                 res.write(`data: ${JSON.stringify(data)}\n\n`);
               }
@@ -191,12 +194,12 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
-        // Envia qualquer conteúdo acumulado restante
-        if (accumulatedContent) {
-          const cleaned = cleanResponse(accumulatedContent);
+        // Se ainda tem texto acumulado não enviado
+        if (accumulatedText) {
+          const cleaned = cleanResponse(accumulatedText);
           if (cleaned) {
             res.write(`data: ${JSON.stringify({
-              choices: [{ delta: { content: cleaned } }]
+              choices: [{ delta: { content: cleaned }, index: 0 }]
             })}\n\n`);
           }
         }
