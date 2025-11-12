@@ -16,7 +16,7 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 
 // Configurações de controle
 const SHOW_REASONING = false;
-const ENABLE_THINKING_MODE = true; // Ativado pra ver como é 
+const ENABLE_THINKING_MODE = false; // Desativado porque prefiro assim 
 
 // Model mapping
 const MODEL_MAPPING = {
