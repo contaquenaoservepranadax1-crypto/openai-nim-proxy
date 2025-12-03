@@ -21,7 +21,7 @@ const ENABLE_THINKING_MODE = false; // Desativado porque prefiro assim
 // Model mapping
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',
-  'gpt-4': 'deepseek-ai/deepseek-v3.1',
+  'gpt-4': 'deepseek-ai/deepseek-r1-0528',
   'gpt-4-turbo': 'qwen/qwen2.5-72b-instruct',
   'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
   'claude-3-opus': 'meta/llama-3.1-405b-instruct',
