@@ -118,12 +118,7 @@ app.get('/v1/models', (_, res) => {
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
-    // Logo após a linha: const { model, messages, temperature, max_tokens, stream } = req.body;
-
-    console.log('════════════════════════════');
-    console.log('PRIMEIRA MENSAGEM RECEBIDA:');
-    console.log(JSON.stringify(messages[0], null, 2));
-    console.log('════════════════════════════');
+    
 
     let nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
     const limitedMessages = limitMessagesByTokens(messages, 8000);
