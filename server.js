@@ -20,13 +20,13 @@ const ENABLE_THINKING_MODE = false; // Desativado porque prefiro assim
 
 // Model mapping
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'meta/llama-3.3-70b-instruct',
-  'gpt-4': 'deepseek-ai/deepseek-r1-0528',
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
   'gpt-4-turbo': 'deepseek-ai/deepseek-v3.1',
   'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
-  'claude-3-opus': 'meta/llama-3.1-405b-instruct',
-  'claude-3-sonnet': 'meta/llama-3.3-70b-instruct',
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1'
+  'claude-3-opus': 'openai/gpt-oss-120b',
+  'claude-3-sonnet': 'openai/gpt-oss-20b',
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
 };
 
 // 🧹 LISTA DE FRASES TÉCNICAS PARA REMOVER
