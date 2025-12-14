@@ -75,7 +75,7 @@ function estimateTokens(text) {
 }
 
 // Limite adaptativo de histórico
-function limitMessagesByTokens(messages, maxTokens = 8000) {
+function limitMessagesByTokens(messages, maxTokens = 30000) {
   if (!messages || messages.length === 0) return messages;
 
   let totalTokens = 0;
