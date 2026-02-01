@@ -1,4 +1,4 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy (Versão Limpa)
+// server.js - OpenAI to NVIDIA NIM API Proxy (OTIMIZADO PARA VELOCIDADE)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -16,9 +16,9 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 
 // Configurações de controle
 const SHOW_REASONING = false;
-const ENABLE_THINKING_MODE = false; // Desativado porque prefiro assim 
+const ENABLE_THINKING_MODE = false;
 
-// Model mapping
+// Model mapping (NÃO MODIFICADO - conforme solicitado)
 const MODEL_MAPPING = {
   'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
@@ -29,52 +29,12 @@ const MODEL_MAPPING = {
   'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
 };
 
-// 🧹 LISTA DE FRASES TÉCNICAS PARA REMOVER
-const UNWANTED_PHRASES = [
-  /^Of course[.,!]?\s+/i,
-  /^Here is the response[.:,]?\s+/i,
-  /^Here is[.:,]?\s+/i,
-  /^Sure[.,!]?\s+/i,
-  /^Certainly[.,!]?\s+/i,
-  /^I understand[.,!]?\s+/i,
-  /^I'll help[.,!]?\s+/i,
-  /^Let me[.,!]?\s+/i,
-  /^I will[.,!]?\s+/i,
-  /^Okay[.,!]?\s+/i,
-  /^Alright[.,!]?\s+/i,
-  /^Got it[.,!]?\s+/i,
-  /^Understood[.,!]?\s+/i,
-  /^Here's[.,!]?\s+/i,
-  /^Here are[.,!]?\s+/i
-];
-
-// 🧹 Função para limpar respostas técnicas
-function cleanResponse(text) {
-  if (!text) return text;
-  
-  let cleaned = text;
-  
-  // Remove frases indesejadas do início (múltiplas passadas)
-  let previousLength;
-  do {
-    previousLength = cleaned.length;
-    for (const pattern of UNWANTED_PHRASES) {
-      cleaned = cleaned.replace(pattern, '');
-    }
-  } while (cleaned.length !== previousLength && cleaned.length > 0);
-  
-  // Remove espaços extras no início apenas
-  cleaned = cleaned.replace(/^\s+/, '');
-  
-  return cleaned;
-}
-
-// Estimativa de tokens
+// Estimativa de tokens (simplificada)
 function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-// Limite adaptativo de histórico
+// Limite adaptativo de histórico (NÃO MODIFICADO - conforme solicitado)
 function limitMessagesByTokens(messages, maxTokens = 30000) {
   if (!messages || messages.length === 0) return messages;
 
@@ -97,9 +57,7 @@ function limitMessagesByTokens(messages, maxTokens = 30000) {
 app.get('/health', (_, res) => {
   res.json({
     status: 'ok',
-    service: 'OpenAI → NVIDIA NIM Proxy (Clean)',
-    reasoning_display: SHOW_REASONING,
-    thinking_mode: ENABLE_THINKING_MODE
+    service: 'OpenAI → NVIDIA NIM Proxy (Speed Optimized)'
   });
 });
 
@@ -114,13 +72,12 @@ app.get('/v1/models', (_, res) => {
   res.json({ object: 'list', data: models });
 });
 
-// Chat completions
+// Chat completions (OTIMIZADO)
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
-    
 
-    let nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
+    const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
     const limitedMessages = limitMessagesByTokens(messages, 8000);
 
     const nimRequest = {
@@ -132,24 +89,23 @@ app.post('/v1/chat/completions', async (req, res) => {
       stream: !!stream
     };
 
+    // ⚡ TIMEOUT AUMENTADO para evitar 504 em modelos lentos
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      responseType: stream ? 'stream' : 'json'
+      responseType: stream ? 'stream' : 'json',
+      timeout: 180000 // 3 minutos (era padrão ~30s)
     });
 
-    // STREAM MODE
+    // STREAM MODE (SIMPLIFICADO - sem limpeza)
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
 
       let buffer = '';
-      let isFirstChunk = true;
-      let accumulatedText = '';
-      let cleanedFirstPart = false;
 
       response.data.on('data', chunk => {
         buffer += chunk.toString();
@@ -158,94 +114,63 @@ app.post('/v1/chat/completions', async (req, res) => {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
+          
           if (line.includes('[DONE]')) {
             res.write('data: [DONE]\n\n');
-            return;
+            continue;
           }
 
           try {
             const data = JSON.parse(line.slice(6));
-            const delta = data.choices?.[0]?.delta;
             
-            if (delta?.content) {
-              // 🧹 Acumula e limpa apenas o INÍCIO da resposta
-              if (!cleanedFirstPart) {
-                accumulatedText += delta.content;
-                
-                // Quando acumular 100+ caracteres, limpa UMA VEZ e libera
-                if (accumulatedText.length >= 100) {
-                  const cleaned = cleanResponse(accumulatedText);
-                  delta.content = cleaned;
-                  cleanedFirstPart = true;
-                  accumulatedText = '';
-                  
-                  if (!SHOW_REASONING) delete delta.reasoning_content;
-                  res.write(`data: ${JSON.stringify(data)}\n\n`);
-                }
-              } else {
-                // Após limpar primeira parte, passa tudo direto
-                if (!SHOW_REASONING) delete delta.reasoning_content;
-                res.write(`data: ${JSON.stringify(data)}\n\n`);
-              }
+            // Remove reasoning se não quiser mostrar
+            if (!SHOW_REASONING && data.choices?.[0]?.delta?.reasoning_content) {
+              delete data.choices[0].delta.reasoning_content;
             }
+            
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
           } catch {
             res.write(line + '\n');
           }
         }
       });
 
-      response.data.on('end', () => {
-        // Se ainda tem texto acumulado não enviado
-        if (accumulatedText) {
-          const cleaned = cleanResponse(accumulatedText);
-          if (cleaned) {
-            res.write(`data: ${JSON.stringify({
-              choices: [{ delta: { content: cleaned }, index: 0 }]
-            })}\n\n`);
-          }
-        }
-        res.end();
-      });
-      
+      response.data.on('end', () => res.end());
       response.data.on('error', err => {
         console.error('Stream error:', err.message);
         res.end();
       });
     }
 
-    // NORMAL MODE
+    // NORMAL MODE (SIMPLIFICADO - sem limpeza)
     else {
       const openaiResponse = {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
         model,
-        choices: response.data.choices.map(choice => {
-          let content = choice.message?.content || '';
-          
-          // 🧹 Limpa resposta
-          content = cleanResponse(content);
-          
-          if (SHOW_REASONING && choice.message?.reasoning_content) {
-            content = `<think>\n${choice.message.reasoning_content}\n</think>\n\n${content}`;
-          }
-          
-          return {
-            index: choice.index,
-            message: {
-              role: choice.message.role,
-              content: content
-            },
-            finish_reason: choice.finish_reason
-          };
-        }),
+        choices: response.data.choices.map(choice => ({
+          index: choice.index,
+          message: {
+            role: choice.message.role,
+            content: choice.message?.content || ''
+          },
+          finish_reason: choice.finish_reason
+        })),
         usage: response.data.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
       };
+      
       res.json(openaiResponse);
     }
 
   } catch (error) {
     console.error('Proxy error:', error.message);
+    
+    // Log detalhado para debug
+    if (error.code === 'ECONNABORTED') {
+      console.error('Timeout - modelo demorou mais de 3 minutos');
+    }
+    
     res.status(error.response?.status || 500).json({
       error: {
         message: error.message || 'Internal server error',
@@ -264,8 +189,7 @@ app.all('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ Proxy rodando na porta ${PORT}`);
+  console.log(`⚡ Proxy OTIMIZADO rodando na porta ${PORT}`);
   console.log(`🌐 Health: http://localhost:${PORT}/health`);
-  console.log(`🧹 Limpeza de respostas: Ativada`);
-  console.log(`🧠 Thinking: ${ENABLE_THINKING_MODE ? 'Ativado' : 'Desativado'}`);
+  console.log(`🚀 Modo: Velocidade Máxima`);
 });
