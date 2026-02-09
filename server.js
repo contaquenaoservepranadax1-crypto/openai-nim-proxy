@@ -18,15 +18,15 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 const SHOW_REASONING = false;
 const ENABLE_THINKING_MODE = false;
 
-// Model mapping (NÃO MODIFICADO - conforme solicitado)
+// Model mapping - ATUALIZADO com DeepSeek V3.1 base (funciona!)
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
-  'gpt-4-turbo': 'deepseek-ai/deepseek-v3.1',
-  'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',
-  'claude-3-opus': 'openai/gpt-oss-120b',
-  'claude-3-sonnet': 'openai/gpt-oss-20b',
-  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',  // ⚡ Rápido
+  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',              // 💭 Emocional
+  'gpt-4-turbo': 'deepseek-ai/deepseek-v3.1',                  // 🧠 DeepSeek V3.1 BASE (funciona!)
+  'gpt-4o': 'deepseek-ai/deepseek-v3.1',                       // 🧠 DeepSeek V3.1 BASE (principal)
+  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // ⚡ Backup rápido
+  'claude-3-opus': 'qwen/qwen3-next-80b-a3b-thinking',         // 🤔 Teste
+  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1'      // ⚡ Estável
 };
 
 // Estimativa de tokens (simplificada)
@@ -34,7 +34,7 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-// Limite adaptativo de histórico (NÃO MODIFICADO - conforme solicitado)
+// Limite adaptativo de histórico (AUMENTADO)
 function limitMessagesByTokens(messages, maxTokens = 30000) {
   if (!messages || messages.length === 0) return messages;
 
@@ -78,7 +78,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 8000);
+    const limitedMessages = limitMessagesByTokens(messages, 30000); // ✅ 30k tokens = ~250-300 mensagens
 
     const nimRequest = {
       model: nimModel,
@@ -89,14 +89,14 @@ app.post('/v1/chat/completions', async (req, res) => {
       stream: !!stream
     };
 
-    // ⚡ TIMEOUT AUMENTADO para evitar 504 em modelos lentos
+    // ⚡ TIMEOUT EXTREMO para DeepSeek (pode demorar 5+ minutos!)
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
       responseType: stream ? 'stream' : 'json',
-      timeout: 180000 // 3 minutos (era padrão ~30s)
+      timeout: 600000 // ⚠️ 10 MINUTOS (extremo!)
     });
 
     // STREAM MODE (SIMPLIFICADO - sem limpeza)
