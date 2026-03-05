@@ -78,7 +78,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 30000); // ✅ 30k tokens = ~250-300 mensagens
+    const limitedMessages = limitMessagesByTokens(messages, 50000); // ✅ 50k tokens
 
     const nimRequest = {
       model: nimModel,
