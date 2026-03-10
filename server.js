@@ -35,7 +35,7 @@ function estimateTokens(text) {
 }
 
 // Limite adaptativo de histórico (AUMENTADO)
-function limitMessagesByTokens(messages, maxTokens = 50000) {
+function limitMessagesByTokens(messages, maxTokens = 70000) {
   if (!messages || messages.length === 0) return messages;
 
   let totalTokens = 0;
@@ -78,7 +78,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 50000); // ✅ 50k tokens
+    const limitedMessages = limitMessagesByTokens(messages, 70000); // ✅ 50k tokens
 
     const nimRequest = {
       model: nimModel,
