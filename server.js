@@ -337,7 +337,3 @@ app.listen(PORT, () => {
   console.log(`🔍 Debug: http://localhost:${PORT}/debug`);
   console.log(`🚀 Modo: Velocidade Máxima`);
 });
-  console.log(`⚡ Proxy OTIMIZADO rodando na porta ${PORT}`);
-  console.log(`🌐 Health: http://localhost:${PORT}/health`);
-  console.log(`🚀 Modo: Velocidade Máxima`);
-});
