@@ -34,23 +34,43 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-// Limite adaptativo de histórico (AUMENTADO)
+// Limite adaptativo de histórico - preserva início (personagem/persona) e fim (cena atual)
 function limitMessagesByTokens(messages, maxTokens = 100000) {
   if (!messages || messages.length === 0) return messages;
 
-  let totalTokens = 0;
-  const keptMessages = [];
+  // Quantas mensagens recentes sempre preservar (contexto da cena atual)
+  const RECENT_MESSAGES_PROTECTED = 20;
+  // Quantas mensagens iniciais sempre preservar (system prompt, definição do personagem, persona)
+  const HEAD_MESSAGES_PROTECTED = 5;
 
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    const tokens = estimateTokens(JSON.stringify(msg));
-    if (totalTokens + tokens <= maxTokens) {
-      keptMessages.unshift(msg);
-      totalTokens += tokens;
-    } else break;
+  // Se couber tudo, retorna tudo
+  const totalTokensAll = messages.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
+  if (totalTokensAll <= maxTokens) return messages;
+
+  // Separa as camadas
+  const head = messages.slice(0, HEAD_MESSAGES_PROTECTED);
+  const tail = messages.slice(-RECENT_MESSAGES_PROTECTED);
+  const middle = messages.slice(HEAD_MESSAGES_PROTECTED, messages.length - RECENT_MESSAGES_PROTECTED);
+
+  // Calcula tokens já comprometidos com head e tail
+  const headTokens = head.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
+  const tailTokens = tail.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
+  const remainingTokens = maxTokens - headTokens - tailTokens;
+
+  // Preenche o meio do mais recente para o mais antigo (prioriza o que está mais perto da cena atual)
+  const keptMiddle = [];
+  let middleTokens = 0;
+  for (let i = middle.length - 1; i >= 0; i--) {
+    const tokens = estimateTokens(JSON.stringify(middle[i]));
+    if (middleTokens + tokens <= remainingTokens) {
+      keptMiddle.unshift(middle[i]);
+      middleTokens += tokens;
+    } else break; // Para quando encher — descarta os mais antigos do meio
   }
 
-  return keptMessages;
+  const result = [...head, ...keptMiddle, ...tail];
+  console.log(`📦 Contexto: ${head.length} head + ${keptMiddle.length}/${middle.length} middle + ${tail.length} tail = ${result.length} msgs`);
+  return result;
 }
 
 // Health check
@@ -78,7 +98,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 100000); // ✅ 50k tokens
+    const limitedMessages = limitMessagesByTokens(messages, 100000); // ✅ 100k tokens
 
     const nimRequest = {
       model: nimModel,
