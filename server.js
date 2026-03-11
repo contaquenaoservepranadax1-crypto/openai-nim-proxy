@@ -18,16 +18,152 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 const SHOW_REASONING = false;
 const ENABLE_THINKING_MODE = false;
 
-// Model mapping - ATUALIZADO com DeepSeek V3.1 base (funciona!)
+// Model mapping
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',  // ⚡ Rápido
-  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',              // 💭 Emocional
-  'gpt-4-turbo': 'deepseek-ai/deepseek-v3.2',                  // 🧠 DeepSeek V3.2
-  'gpt-4o': 'deepseek-ai/deepseek-v3.1',                       // 🧠 DeepSeek V3.1 BASE (principal)
-  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // ⚡ Backup rápido
-  'claude-3-opus': 'qwen/qwen3-next-80b-a3b-thinking',         // 🤔 Teste
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1'      // ⚡ Estável
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
+  'gpt-4-turbo': 'deepseek-ai/deepseek-v3.2',
+  'gpt-4o': 'deepseek-ai/deepseek-v3.1',
+  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  'claude-3-opus': 'qwen/qwen3-next-80b-a3b-thinking',
+  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1'
 };
+
+// ============================================================
+// 🔍 DEBUG STORE - guarda os últimos 5 requests recebidos
+// ============================================================
+const debugStore = [];
+const MAX_DEBUG_ENTRIES = 5;
+
+function saveDebugEntry(rawBody) {
+  const messages = rawBody.messages || [];
+
+  const entry = {
+    timestamp: new Date().toISOString(),
+    model_requested: rawBody.model,
+    model_mapped: MODEL_MAPPING[rawBody.model] || 'meta/llama-3.1-70b-instruct',
+    temperature: rawBody.temperature,
+    max_tokens: rawBody.max_tokens,
+    stream: rawBody.stream,
+    total_messages: messages.length,
+    estimated_tokens: messages.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0),
+    messages: messages.map((m, i) => ({
+      index: i,
+      role: m.role,
+      char_length: (m.content || '').length,
+      estimated_tokens: estimateTokens(JSON.stringify(m)),
+      // Mostra preview dos primeiros e últimos 300 chars do conteúdo
+      content_preview: (m.content || '').length > 600
+        ? (m.content || '').slice(0, 300) + '\n\n[... TRUNCADO ...]\n\n' + (m.content || '').slice(-300)
+        : (m.content || '')
+    }))
+  };
+
+  debugStore.unshift(entry); // mais recente primeiro
+  if (debugStore.length > MAX_DEBUG_ENTRIES) debugStore.pop();
+}
+
+function escapeHtml(text) {
+  return (text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ============================================================
+// 🔍 ENDPOINT DE DEBUG - abre no browser
+// ============================================================
+app.get('/debug', (req, res) => {
+  if (debugStore.length === 0) {
+    return res.send(`
+      <html><body style="font-family:monospace;padding:20px;background:#111;color:#0f0">
+        <h2>🔍 Debug — Nenhum request recebido ainda</h2>
+        <p>Faça uma mensagem no JanitorAI e recarregue esta página.</p>
+      </body></html>
+    `);
+  }
+
+  // Suporta ?entry=N para ver requests anteriores
+  const entryIndex = Math.min(parseInt(req.query.entry || '0'), debugStore.length - 1);
+  const entry = debugStore[entryIndex];
+
+  const messagesHTML = entry.messages.map(m => `
+    <div style="border:1px solid #333;margin:8px 0;padding:12px;border-radius:6px;background:#1a1a1a">
+      <div style="margin-bottom:8px">
+        <span style="background:${m.role === 'system' ? '#4a3000' : m.role === 'user' ? '#003a4a' : '#1a3a00'};padding:2px 8px;border-radius:4px;font-size:12px">
+          [${m.index}] ${m.role.toUpperCase()}
+        </span>
+        <span style="color:#888;font-size:12px;margin-left:10px">
+          ${m.char_length} chars · ~${m.estimated_tokens} tokens
+        </span>
+      </div>
+      <pre style="white-space:pre-wrap;word-break:break-word;color:#ccc;font-size:13px;margin:0">${escapeHtml(m.content_preview)}</pre>
+    </div>
+  `).join('');
+
+  const allEntriesNav = debugStore.map((e, i) => `
+    <a href="/debug?entry=${i}" style="color:${i === entryIndex ? '#0f0' : '#666'};margin-right:15px;text-decoration:none;font-size:12px">
+      ${i === entryIndex ? '▶ ' : ''}[${i}] ${e.timestamp} — ${e.total_messages} msgs
+    </a>
+  `).join('<br>');
+
+  res.send(`
+    <html>
+    <head>
+      <title>🔍 Proxy Debug</title>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: monospace; padding: 20px; background: #111; color: #eee; }
+        h2 { color: #0f0; }
+        .stat { display: inline-block; background: #222; padding: 6px 14px; border-radius: 6px; margin: 4px; font-size: 13px; }
+        .stat span { color: #0f0; font-weight: bold; }
+        .nav { background: #1a1a1a; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 12px; line-height: 2; }
+      </style>
+    </head>
+    <body>
+      <h2>🔍 Proxy Debug</h2>
+
+      <div class="nav">
+        <b style="color:#888">Histórico (últimos ${MAX_DEBUG_ENTRIES} requests):</b><br>
+        ${allEntriesNav}
+      </div>
+
+      <div style="margin-bottom:16px">
+        <div class="stat">🕐 <span>${entry.timestamp}</span></div>
+        <div class="stat">🤖 Modelo pedido: <span>${entry.model_requested}</span></div>
+        <div class="stat">🔀 Mapeado para: <span>${entry.model_mapped}</span></div>
+        <div class="stat">📨 Total mensagens: <span>${entry.total_messages}</span></div>
+        <div class="stat">🔢 Tokens estimados: <span>${entry.estimated_tokens.toLocaleString()}</span></div>
+        <div class="stat">🌡️ Temperature: <span>${entry.temperature ?? 'default'}</span></div>
+        <div class="stat">📏 Max tokens: <span>${entry.max_tokens ?? 'default'}</span></div>
+        <div class="stat">📡 Stream: <span>${entry.stream ? 'sim' : 'não'}</span></div>
+      </div>
+
+      <h3 style="color:#0af">📋 Mensagens (${entry.total_messages} total) — conteúdos longos truncados</h3>
+      ${messagesHTML}
+
+      <br>
+      <button onclick="location.reload()" style="background:#0f0;color:#000;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;margin-right:10px">
+        🔄 Atualizar
+      </button>
+      <a href="/debug/raw" style="background:#333;color:#eee;padding:10px 20px;border-radius:6px;text-decoration:none">
+        📄 Ver JSON bruto
+      </a>
+    </body>
+    </html>
+  `);
+});
+
+// JSON bruto do último request (útil para inspecionar tudo)
+app.get('/debug/raw', (req, res) => {
+  if (debugStore.length === 0) {
+    return res.json({ message: 'Nenhum request recebido ainda.' });
+  }
+  res.json(debugStore[0]);
+});
+
+// ============================================================
 
 // Estimativa de tokens (simplificada)
 function estimateTokens(text) {
@@ -38,26 +174,20 @@ function estimateTokens(text) {
 function limitMessagesByTokens(messages, maxTokens = 100000) {
   if (!messages || messages.length === 0) return messages;
 
-  // Quantas mensagens recentes sempre preservar (contexto da cena atual)
   const RECENT_MESSAGES_PROTECTED = 20;
-  // Quantas mensagens iniciais sempre preservar (system prompt, definição do personagem, persona)
   const HEAD_MESSAGES_PROTECTED = 5;
 
-  // Se couber tudo, retorna tudo
   const totalTokensAll = messages.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
   if (totalTokensAll <= maxTokens) return messages;
 
-  // Separa as camadas
   const head = messages.slice(0, HEAD_MESSAGES_PROTECTED);
   const tail = messages.slice(-RECENT_MESSAGES_PROTECTED);
   const middle = messages.slice(HEAD_MESSAGES_PROTECTED, messages.length - RECENT_MESSAGES_PROTECTED);
 
-  // Calcula tokens já comprometidos com head e tail
   const headTokens = head.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
   const tailTokens = tail.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
   const remainingTokens = maxTokens - headTokens - tailTokens;
 
-  // Preenche o meio do mais recente para o mais antigo (prioriza o que está mais perto da cena atual)
   const keptMiddle = [];
   let middleTokens = 0;
   for (let i = middle.length - 1; i >= 0; i--) {
@@ -65,7 +195,7 @@ function limitMessagesByTokens(messages, maxTokens = 100000) {
     if (middleTokens + tokens <= remainingTokens) {
       keptMiddle.unshift(middle[i]);
       middleTokens += tokens;
-    } else break; // Para quando encher — descarta os mais antigos do meio
+    } else break;
   }
 
   const result = [...head, ...keptMiddle, ...tail];
@@ -92,13 +222,16 @@ app.get('/v1/models', (_, res) => {
   res.json({ object: 'list', data: models });
 });
 
-// Chat completions (OTIMIZADO)
+// Chat completions
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
 
+    // 🔍 Salva para debug ANTES de qualquer processamento
+    saveDebugEntry(req.body);
+
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 100000); // ✅ 100k tokens
+    const limitedMessages = limitMessagesByTokens(messages, 100000);
 
     const nimRequest = {
       model: nimModel,
@@ -109,17 +242,15 @@ app.post('/v1/chat/completions', async (req, res) => {
       stream: !!stream
     };
 
-    // ⚡ TIMEOUT EXTREMO para DeepSeek (pode demorar 5+ minutos!)
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
       responseType: stream ? 'stream' : 'json',
-      timeout: 600000 // ⚠️ 10 MINUTOS (extremo!)
+      timeout: 600000
     });
 
-    // STREAM MODE (SIMPLIFICADO - sem limpeza)
     if (stream) {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -134,7 +265,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          
+
           if (line.includes('[DONE]')) {
             res.write('data: [DONE]\n\n');
             continue;
@@ -142,12 +273,9 @@ app.post('/v1/chat/completions', async (req, res) => {
 
           try {
             const data = JSON.parse(line.slice(6));
-            
-            // Remove reasoning se não quiser mostrar
             if (!SHOW_REASONING && data.choices?.[0]?.delta?.reasoning_content) {
               delete data.choices[0].delta.reasoning_content;
             }
-            
             res.write(`data: ${JSON.stringify(data)}\n\n`);
           } catch {
             res.write(line + '\n');
@@ -160,10 +288,8 @@ app.post('/v1/chat/completions', async (req, res) => {
         console.error('Stream error:', err.message);
         res.end();
       });
-    }
 
-    // NORMAL MODE (SIMPLIFICADO - sem limpeza)
-    else {
+    } else {
       const openaiResponse = {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
@@ -179,18 +305,15 @@ app.post('/v1/chat/completions', async (req, res) => {
         })),
         usage: response.data.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
       };
-      
+
       res.json(openaiResponse);
     }
 
   } catch (error) {
     console.error('Proxy error:', error.message);
-    
-    // Log detalhado para debug
     if (error.code === 'ECONNABORTED') {
-      console.error('Timeout - modelo demorou mais de 3 minutos');
+      console.error('Timeout - modelo demorou mais de 10 minutos');
     }
-    
     res.status(error.response?.status || 500).json({
       error: {
         message: error.message || 'Internal server error',
@@ -209,6 +332,11 @@ app.all('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
+  console.log(`⚡ Proxy OTIMIZADO rodando na porta ${PORT}`);
+  console.log(`🌐 Health: http://localhost:${PORT}/health`);
+  console.log(`🔍 Debug: http://localhost:${PORT}/debug`);
+  console.log(`🚀 Modo: Velocidade Máxima`);
+});
   console.log(`⚡ Proxy OTIMIZADO rodando na porta ${PORT}`);
   console.log(`🌐 Health: http://localhost:${PORT}/health`);
   console.log(`🚀 Modo: Velocidade Máxima`);
