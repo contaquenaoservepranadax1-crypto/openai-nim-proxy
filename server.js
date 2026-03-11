@@ -170,37 +170,27 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-// Limite adaptativo de histórico - preserva início (personagem/persona) e fim (cena atual)
-function limitMessagesByTokens(messages, maxTokens = 100000) {
-  if (!messages || messages.length === 0) return messages;
+// Analisa o payload e loga avisos úteis no console do Render.
+// O JanitorAI comprime TODO o histórico dentro do SYSTEM antes de enviar,
+// então cortar mensagens não resolve — o que importa é monitorar o tamanho do SYSTEM.
+function analyzeAndWarn(messages) {
+  if (!messages || messages.length === 0) return;
 
-  const RECENT_MESSAGES_PROTECTED = 20;
-  const HEAD_MESSAGES_PROTECTED = 5;
+  const totalTokens = messages.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
+  const systemMsg = messages.find(m => m.role === 'system');
+  const systemTokens = systemMsg ? estimateTokens(JSON.stringify(systemMsg)) : 0;
+  const systemPercent = totalTokens > 0 ? Math.round((systemTokens / totalTokens) * 100) : 0;
 
-  const totalTokensAll = messages.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
-  if (totalTokensAll <= maxTokens) return messages;
-
-  const head = messages.slice(0, HEAD_MESSAGES_PROTECTED);
-  const tail = messages.slice(-RECENT_MESSAGES_PROTECTED);
-  const middle = messages.slice(HEAD_MESSAGES_PROTECTED, messages.length - RECENT_MESSAGES_PROTECTED);
-
-  const headTokens = head.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
-  const tailTokens = tail.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
-  const remainingTokens = maxTokens - headTokens - tailTokens;
-
-  const keptMiddle = [];
-  let middleTokens = 0;
-  for (let i = middle.length - 1; i >= 0; i--) {
-    const tokens = estimateTokens(JSON.stringify(middle[i]));
-    if (middleTokens + tokens <= remainingTokens) {
-      keptMiddle.unshift(middle[i]);
-      middleTokens += tokens;
-    } else break;
+  if (systemTokens > 30000) {
+    console.warn(`⚠️  SYSTEM PESADO: ~${systemTokens.toLocaleString()} tokens (${systemPercent}% do total)`);
+    console.warn(`⚠️  Chat Memory muito grande — limpe e cole um resumo novo no JanitorAI.`);
+  } else if (systemTokens > 15000) {
+    console.warn(`🟡 SYSTEM MÉDIO: ~${systemTokens.toLocaleString()} tokens (${systemPercent}% do total)`);
+  } else {
+    console.log(`✅ SYSTEM OK: ~${systemTokens.toLocaleString()} tokens (${systemPercent}% do total)`);
   }
 
-  const result = [...head, ...keptMiddle, ...tail];
-  console.log(`📦 Contexto: ${head.length} head + ${keptMiddle.length}/${middle.length} middle + ${tail.length} tail = ${result.length} msgs`);
-  return result;
+  console.log(`📊 Total: ~${totalTokens.toLocaleString()} tokens em ${messages.length} mensagem(ns)`);
 }
 
 // Health check
@@ -231,11 +221,11 @@ app.post('/v1/chat/completions', async (req, res) => {
     saveDebugEntry(req.body);
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 100000);
+    analyzeAndWarn(messages);
 
     const nimRequest = {
       model: nimModel,
-      messages: limitedMessages,
+      messages,
       temperature: temperature ?? 1.0,
       max_tokens: max_tokens ?? 16384,
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
