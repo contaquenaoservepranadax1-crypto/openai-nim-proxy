@@ -18,15 +18,15 @@ const NIM_API_KEY = process.env.NIM_API_KEY;
 const SHOW_REASONING = false;
 const ENABLE_THINKING_MODE = false;
 
-// Model mapping
+// Model mapping - ATUALIZADO com DeepSeek V3.1 base (funciona!)
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',
-  'gpt-4-turbo': 'deepseek-ai/deepseek-v3.2',
-  'gpt-4o': 'deepseek-ai/deepseek-v3.1',
-  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-  'claude-3-opus': 'qwen/qwen3-next-80b-a3b-thinking',
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1'
+  'gpt-3.5-turbo': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',  // ⚡ Rápido
+  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',              // 💭 Emocional
+  'gpt-4-turbo': 'deepseek-ai/deepseek-v3.2',                  // 🧠 DeepSeek V3.2
+  'gpt-4o': 'deepseek-ai/deepseek-v3.1',                       // 🧠 DeepSeek V3.1 BASE (principal)
+  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // ⚡ Backup rápido
+  'claude-3-opus': 'qwen/qwen3-next-80b-a3b-thinking',         // 🤔 Teste
+  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1'      // ⚡ Estável
 };
 
 // ============================================================
@@ -34,6 +34,11 @@ const MODEL_MAPPING = {
 // ============================================================
 const debugStore = [];
 const MAX_DEBUG_ENTRIES = 5;
+
+// Estimativa de tokens (simplificada)
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
 
 function saveDebugEntry(rawBody) {
   const messages = rawBody.messages || [];
@@ -52,14 +57,13 @@ function saveDebugEntry(rawBody) {
       role: m.role,
       char_length: (m.content || '').length,
       estimated_tokens: estimateTokens(JSON.stringify(m)),
-      // Mostra preview dos primeiros e últimos 300 chars do conteúdo
       content_preview: (m.content || '').length > 600
         ? (m.content || '').slice(0, 300) + '\n\n[... TRUNCADO ...]\n\n' + (m.content || '').slice(-300)
         : (m.content || '')
     }))
   };
 
-  debugStore.unshift(entry); // mais recente primeiro
+  debugStore.unshift(entry);
   if (debugStore.length > MAX_DEBUG_ENTRIES) debugStore.pop();
 }
 
@@ -84,7 +88,6 @@ app.get('/debug', (req, res) => {
     `);
   }
 
-  // Suporta ?entry=N para ver requests anteriores
   const entryIndex = Math.min(parseInt(req.query.entry || '0'), debugStore.length - 1);
   const entry = debugStore[entryIndex];
 
@@ -155,7 +158,6 @@ app.get('/debug', (req, res) => {
   `);
 });
 
-// JSON bruto do último request (útil para inspecionar tudo)
 app.get('/debug/raw', (req, res) => {
   if (debugStore.length === 0) {
     return res.json({ message: 'Nenhum request recebido ainda.' });
@@ -165,32 +167,23 @@ app.get('/debug/raw', (req, res) => {
 
 // ============================================================
 
-// Estimativa de tokens (simplificada)
-function estimateTokens(text) {
-  return Math.ceil(text.length / 4);
-}
+// Limite adaptativo de histórico (AUMENTADO)
+function limitMessagesByTokens(messages, maxTokens = 50000) {
+  if (!messages || messages.length === 0) return messages;
 
-// Analisa o payload e loga avisos úteis no console do Render.
-// O JanitorAI comprime TODO o histórico dentro do SYSTEM antes de enviar,
-// então cortar mensagens não resolve — o que importa é monitorar o tamanho do SYSTEM.
-function analyzeAndWarn(messages) {
-  if (!messages || messages.length === 0) return;
+  let totalTokens = 0;
+  const keptMessages = [];
 
-  const totalTokens = messages.reduce((sum, m) => sum + estimateTokens(JSON.stringify(m)), 0);
-  const systemMsg = messages.find(m => m.role === 'system');
-  const systemTokens = systemMsg ? estimateTokens(JSON.stringify(systemMsg)) : 0;
-  const systemPercent = totalTokens > 0 ? Math.round((systemTokens / totalTokens) * 100) : 0;
-
-  if (systemTokens > 30000) {
-    console.warn(`⚠️  SYSTEM PESADO: ~${systemTokens.toLocaleString()} tokens (${systemPercent}% do total)`);
-    console.warn(`⚠️  Chat Memory muito grande — limpe e cole um resumo novo no JanitorAI.`);
-  } else if (systemTokens > 15000) {
-    console.warn(`🟡 SYSTEM MÉDIO: ~${systemTokens.toLocaleString()} tokens (${systemPercent}% do total)`);
-  } else {
-    console.log(`✅ SYSTEM OK: ~${systemTokens.toLocaleString()} tokens (${systemPercent}% do total)`);
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    const tokens = estimateTokens(JSON.stringify(msg));
+    if (totalTokens + tokens <= maxTokens) {
+      keptMessages.unshift(msg);
+      totalTokens += tokens;
+    } else break;
   }
 
-  console.log(`📊 Total: ~${totalTokens.toLocaleString()} tokens em ${messages.length} mensagem(ns)`);
+  return keptMessages;
 }
 
 // Health check
@@ -212,7 +205,7 @@ app.get('/v1/models', (_, res) => {
   res.json({ object: 'list', data: models });
 });
 
-// Chat completions
+// Chat completions (OTIMIZADO)
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
@@ -221,30 +214,29 @@ app.post('/v1/chat/completions', async (req, res) => {
     saveDebugEntry(req.body);
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    analyzeAndWarn(messages);
+    const limitedMessages = limitMessagesByTokens(messages, 50000);
 
-    // Sempre pedimos stream ao NIM — evita 504 no Render.
-    // Se o cliente pediu JSON normal, coletamos os chunks e entregamos tudo no final.
     const nimRequest = {
       model: nimModel,
-      messages,
+      messages: limitedMessages,
       temperature: temperature ?? 1.0,
       max_tokens: max_tokens ?? 16384,
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
-      stream: true
+      stream: !!stream
     };
 
+    // ⚡ TIMEOUT EXTREMO para DeepSeek (pode demorar 5+ minutos!)
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      responseType: 'stream',
-      timeout: 600000
+      responseType: stream ? 'stream' : 'json',
+      timeout: 600000 // ⚠️ 10 MINUTOS (extremo!)
     });
 
+    // STREAM MODE
     if (stream) {
-      // Cliente pediu stream — passa os chunks direto
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -266,9 +258,11 @@ app.post('/v1/chat/completions', async (req, res) => {
 
           try {
             const data = JSON.parse(line.slice(6));
+
             if (!SHOW_REASONING && data.choices?.[0]?.delta?.reasoning_content) {
               delete data.choices[0].delta.reasoning_content;
             }
+
             res.write(`data: ${JSON.stringify(data)}\n\n`);
           } catch {
             res.write(line + '\n');
@@ -281,54 +275,36 @@ app.post('/v1/chat/completions', async (req, res) => {
         console.error('Stream error:', err.message);
         res.end();
       });
+    }
 
-    } else {
-      // Cliente pediu JSON — coleta o stream inteiro e monta a resposta
-      let buffer = '';
-      let fullContent = '';
-      let finishReason = 'stop';
-      let usage = null;
-
-      await new Promise((resolve, reject) => {
-        response.data.on('data', chunk => {
-          buffer += chunk.toString();
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ') || line.includes('[DONE]')) continue;
-            try {
-              const data = JSON.parse(line.slice(6));
-              const delta = data.choices?.[0]?.delta;
-              if (delta?.content) fullContent += delta.content;
-              if (data.choices?.[0]?.finish_reason) finishReason = data.choices[0].finish_reason;
-              if (data.usage) usage = data.usage;
-            } catch { /* chunk mal-formado, ignora */ }
-          }
-        });
-        response.data.on('end', resolve);
-        response.data.on('error', reject);
-      });
-
-      res.json({
+    // NORMAL MODE
+    else {
+      const openaiResponse = {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
         model,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: fullContent },
-          finish_reason: finishReason
-        }],
-        usage: usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
-      });
+        choices: response.data.choices.map(choice => ({
+          index: choice.index,
+          message: {
+            role: choice.message.role,
+            content: choice.message?.content || ''
+          },
+          finish_reason: choice.finish_reason
+        })),
+        usage: response.data.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      };
+
+      res.json(openaiResponse);
     }
 
   } catch (error) {
     console.error('Proxy error:', error.message);
+
     if (error.code === 'ECONNABORTED') {
       console.error('Timeout - modelo demorou mais de 10 minutos');
     }
+
     res.status(error.response?.status || 500).json({
       error: {
         message: error.message || 'Internal server error',
@@ -351,4 +327,4 @@ app.listen(PORT, () => {
   console.log(`🌐 Health: http://localhost:${PORT}/health`);
   console.log(`🔍 Debug: http://localhost:${PORT}/debug`);
   console.log(`🚀 Modo: Velocidade Máxima`);
-});;
+});
