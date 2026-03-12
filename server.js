@@ -1,3 +1,4 @@
+
 // server.js - OpenAI to NVIDIA NIM API Proxy (OTIMIZADO PARA VELOCIDADE)
 const express = require('express');
 const cors = require('cors');
@@ -168,7 +169,7 @@ app.get('/debug/raw', (req, res) => {
 // ============================================================
 
 // Limite adaptativo de histórico (AUMENTADO)
-function limitMessagesByTokens(messages, maxTokens = 50000) {
+function limitMessagesByTokens(messages, maxTokens = 100000) {
   if (!messages || messages.length === 0) return messages;
 
   let totalTokens = 0;
@@ -214,7 +215,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     saveDebugEntry(req.body);
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 50000);
+    const limitedMessages = limitMessagesByTokens(messages, 100000);
 
     const nimRequest = {
       model: nimModel,
@@ -327,4 +328,15 @@ app.listen(PORT, () => {
   console.log(`🌐 Health: http://localhost:${PORT}/health`);
   console.log(`🔍 Debug: http://localhost:${PORT}/debug`);
   console.log(`🚀 Modo: Velocidade Máxima`);
+
+  // Self-ping a cada 10 minutos para o Render não dormir
+  const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+  if (RENDER_URL) {
+    setInterval(() => {
+      axios.get(`${RENDER_URL}/health`)
+        .then(() => console.log(`🏓 Keep-alive ping OK`))
+        .catch(err => console.warn(`⚠️ Keep-alive falhou: ${err.message}`));
+    }, 10 * 60 * 1000);
+    console.log(`🏓 Keep-alive ativo → ${RENDER_URL}/health`);
+  }
 });
