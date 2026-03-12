@@ -223,13 +223,15 @@ app.post('/v1/chat/completions', async (req, res) => {
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
     analyzeAndWarn(messages);
 
+    // Sempre pedimos stream ao NIM — evita 504 no Render.
+    // Se o cliente pediu JSON normal, coletamos os chunks e entregamos tudo no final.
     const nimRequest = {
       model: nimModel,
       messages,
       temperature: temperature ?? 1.0,
       max_tokens: max_tokens ?? 16384,
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
-      stream: !!stream
+      stream: true
     };
 
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
@@ -237,11 +239,12 @@ app.post('/v1/chat/completions', async (req, res) => {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      responseType: stream ? 'stream' : 'json',
+      responseType: 'stream',
       timeout: 600000
     });
 
     if (stream) {
+      // Cliente pediu stream — passa os chunks direto
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -280,23 +283,45 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
     } else {
-      const openaiResponse = {
+      // Cliente pediu JSON — coleta o stream inteiro e monta a resposta
+      let buffer = '';
+      let fullContent = '';
+      let finishReason = 'stop';
+      let usage = null;
+
+      await new Promise((resolve, reject) => {
+        response.data.on('data', chunk => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ') || line.includes('[DONE]')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              const delta = data.choices?.[0]?.delta;
+              if (delta?.content) fullContent += delta.content;
+              if (data.choices?.[0]?.finish_reason) finishReason = data.choices[0].finish_reason;
+              if (data.usage) usage = data.usage;
+            } catch { /* chunk mal-formado, ignora */ }
+          }
+        });
+        response.data.on('end', resolve);
+        response.data.on('error', reject);
+      });
+
+      res.json({
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
         model,
-        choices: response.data.choices.map(choice => ({
-          index: choice.index,
-          message: {
-            role: choice.message.role,
-            content: choice.message?.content || ''
-          },
-          finish_reason: choice.finish_reason
-        })),
-        usage: response.data.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
-      };
-
-      res.json(openaiResponse);
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: fullContent },
+          finish_reason: finishReason
+        }],
+        usage: usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      });
     }
 
   } catch (error) {
@@ -326,4 +351,4 @@ app.listen(PORT, () => {
   console.log(`🌐 Health: http://localhost:${PORT}/health`);
   console.log(`🔍 Debug: http://localhost:${PORT}/debug`);
   console.log(`🚀 Modo: Velocidade Máxima`);
-});
+});;
