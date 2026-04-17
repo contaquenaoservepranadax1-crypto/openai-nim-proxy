@@ -27,7 +27,7 @@ const MODEL_MAPPING = {
   'gpt-4o': 'deepseek-ai/deepseek-v3.1-terminus',                       // 🧠 DeepSeek V3.1 Terminus 
   'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // ⚡ Backup rápido
   'claude-3-opus': 'z-ai/glm5',         // 🤔 Teste
-  'gemini-pro': 'nvidia/llama-3.1-nemotron-ultra-253b-v1'      // ⚡ Estável
+  'gemini-pro': 'minimaxai/minimax-m2.7'      // Outro teste 
 };
 
 // ============================================================
