@@ -13,7 +13,7 @@ app.use(express.json({ limit: '100mb' }));
 
 // NVIDIA NIM API config
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
-const NIM_API_KEY = process.env.NIM_API_KEY;
+const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
 // Configurações de controle
 const SHOW_REASONING = false;
