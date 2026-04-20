@@ -300,7 +300,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Proxy error:', error.message);
+    console.error('Proxy error:', error.response?.data || error.message);
 
     if (error.code === 'ECONNABORTED') {
       console.error('Timeout - modelo demorou mais de 10 minutos');
