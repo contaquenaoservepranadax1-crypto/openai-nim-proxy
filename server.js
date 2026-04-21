@@ -16,8 +16,8 @@ const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.c
 const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
 // Configurações de controle
-const SHOW_REASONING = false;
-const ENABLE_THINKING_MODE = false;
+const SHOW_REASONING = true;
+const ENABLE_THINKING_MODE = true;
 
 // Model mapping - ATUALIZADO com DeepSeek V3.1 base (funciona!)
 const MODEL_MAPPING = {
