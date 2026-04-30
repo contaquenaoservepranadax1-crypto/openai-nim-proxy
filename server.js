@@ -26,7 +26,7 @@ const MODEL_MAPPING = {
   'gpt-4-turbo': 'deepseek-ai/deepseek-v3.2',                  // 🧠 DeepSeek V3.2
   'gpt-4o': 'deepseek-ai/deepseek-v4-pro',                       // 🧠 DeepSeek V3.1 Terminus 
   'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // ⚡ Backup rápido
-  'claude-3-opus': 'z-ai/glm5',         // 🤔 Teste
+  'claude-3-opus': 'z-ai/glm-5.1',         // 🤔 Teste
   'gemini-pro': 'minimaxai/minimax-m2.5'      // Outro teste 
 };
 
