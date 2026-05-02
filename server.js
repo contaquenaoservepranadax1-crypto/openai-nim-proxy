@@ -1,4 +1,4 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy (CORRIGIDO PARA 504)
+// server.js - OpenAI to NVIDIA NIM API Proxy
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -9,21 +9,27 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 
+// FIX: TCP keep-alive para o Render nao fechar conexoes ociosas
+app.use((req, res, next) => {
+  req.socket.setKeepAlive(true, 15000);
+  req.socket.setTimeout(0);
+  next();
+});
+
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
 const SHOW_REASONING = true;
 const ENABLE_THINKING_MODE = true;
 
-// FIX 3: Modelos mais leves preferidos para evitar timeout
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'moonshotai/kimi-k2.5',
-  'gpt-4': 'deepseek-ai/deepseek-v3-0324',
-  'gpt-4-turbo': 'moonshotai/kimi-k2.6',
-  'gpt-4o': 'deepseek-ai/deepseek-v4-pro',
+  'gpt-3.5-turbo':   'moonshotai/kimi-k2.5',
+  'gpt-4':           'deepseek-ai/deepseek-v3-0324',
+  'gpt-4-turbo':     'moonshotai/kimi-k2.6',
+  'gpt-4o':          'deepseek-ai/deepseek-v4-pro',
   'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-  'claude-3-opus': 'z-ai/glm4.7',
-  'gemini-pro': 'minimaxai/minimax-m2.5'
+  'claude-3-opus':   'z-ai/glm4.7',
+  'gemini-pro':      'minimaxai/minimax-m2.5'
 };
 
 const debugStore = [];
@@ -60,73 +66,51 @@ function saveDebugEntry(rawBody) {
 
 function escapeHtml(text) {
   return (text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 app.get('/debug', (req, res) => {
   if (debugStore.length === 0) {
-    return res.send(`
-      <html><body style="font-family:monospace;padding:20px;background:#111;color:#0f0">
-        <h2>Debug — Nenhum request recebido ainda</h2>
-        <p>Faca uma mensagem no JanitorAI e recarregue esta pagina.</p>
-      </body></html>
-    `);
+    return res.send(`<html><body style="font-family:monospace;padding:20px;background:#111;color:#0f0">
+      <h2>Debug - Nenhum request recebido ainda</h2>
+      <p>Faca uma mensagem no JanitorAI e recarregue esta pagina.</p>
+    </body></html>`);
   }
-
   const entryIndex = Math.min(parseInt(req.query.entry || '0'), debugStore.length - 1);
   const entry = debugStore[entryIndex];
-
   const messagesHTML = entry.messages.map(m => `
     <div style="border:1px solid #333;margin:8px 0;padding:12px;border-radius:6px;background:#1a1a1a">
       <div style="margin-bottom:8px">
-        <span style="background:${m.role === 'system' ? '#4a3000' : m.role === 'user' ? '#003a4a' : '#1a3a00'};padding:2px 8px;border-radius:4px;font-size:12px">
-          [${m.index}] ${m.role.toUpperCase()}
-        </span>
-        <span style="color:#888;font-size:12px;margin-left:10px">
-          ${m.char_length} chars · ~${m.estimated_tokens} tokens
-        </span>
+        <span style="background:${m.role==='system'?'#4a3000':m.role==='user'?'#003a4a':'#1a3a00'};padding:2px 8px;border-radius:4px;font-size:12px">[${m.index}] ${m.role.toUpperCase()}</span>
+        <span style="color:#888;font-size:12px;margin-left:10px">${m.char_length} chars · ~${m.estimated_tokens} tokens</span>
       </div>
       <pre style="white-space:pre-wrap;word-break:break-word;color:#ccc;font-size:13px;margin:0">${escapeHtml(m.content_preview)}</pre>
-    </div>
-  `).join('');
-
+    </div>`).join('');
   const allEntriesNav = debugStore.map((e, i) => `
-    <a href="/debug?entry=${i}" style="color:${i === entryIndex ? '#0f0' : '#666'};margin-right:15px;text-decoration:none;font-size:12px">
-      ${i === entryIndex ? '> ' : ''}[${i}] ${e.timestamp} - ${e.total_messages} msgs
-    </a>
-  `).join('<br>');
-
-  res.send(`
-    <html>
-    <head><title>Proxy Debug</title><meta charset="utf-8">
-    <style>
-      body{font-family:monospace;padding:20px;background:#111;color:#eee}
-      h2{color:#0f0}.stat{display:inline-block;background:#222;padding:6px 14px;border-radius:6px;margin:4px;font-size:13px}
-      .stat span{color:#0f0;font-weight:bold}.nav{background:#1a1a1a;padding:12px;border-radius:6px;margin-bottom:20px;font-size:12px;line-height:2}
-    </style></head>
-    <body>
-      <h2>Proxy Debug</h2>
-      <div class="nav"><b style="color:#888">Historico (ultimos ${MAX_DEBUG_ENTRIES} requests):</b><br>${allEntriesNav}</div>
-      <div style="margin-bottom:16px">
-        <div class="stat">Timestamp: <span>${entry.timestamp}</span></div>
-        <div class="stat">Modelo pedido: <span>${entry.model_requested}</span></div>
-        <div class="stat">Mapeado para: <span>${entry.model_mapped}</span></div>
-        <div class="stat">Total msgs: <span>${entry.total_messages}</span></div>
-        <div class="stat">Tokens est.: <span>${entry.estimated_tokens.toLocaleString()}</span></div>
-        <div class="stat">Temperature: <span>${entry.temperature ?? 'default'}</span></div>
-        <div class="stat">Max tokens: <span>${entry.max_tokens ?? 'default'}</span></div>
-        <div class="stat">Stream: <span>${entry.stream ? 'sim' : 'nao'}</span></div>
-      </div>
-      <h3 style="color:#0af">Mensagens (${entry.total_messages} total)</h3>
-      ${messagesHTML}
-      <br>
-      <button onclick="location.reload()" style="background:#0f0;color:#000;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;margin-right:10px">Atualizar</button>
-      <a href="/debug/raw" style="background:#333;color:#eee;padding:10px 20px;border-radius:6px;text-decoration:none">Ver JSON bruto</a>
-    </body></html>
-  `);
+    <a href="/debug?entry=${i}" style="color:${i===entryIndex?'#0f0':'#666'};margin-right:15px;text-decoration:none;font-size:12px">
+      ${i===entryIndex?'> ':''}[${i}] ${e.timestamp} - ${e.total_messages} msgs
+    </a>`).join('<br>');
+  res.send(`<html><head><title>Proxy Debug</title><meta charset="utf-8">
+    <style>body{font-family:monospace;padding:20px;background:#111;color:#eee}h2{color:#0f0}
+    .stat{display:inline-block;background:#222;padding:6px 14px;border-radius:6px;margin:4px;font-size:13px}
+    .stat span{color:#0f0;font-weight:bold}.nav{background:#1a1a1a;padding:12px;border-radius:6px;margin-bottom:20px;font-size:12px;line-height:2}
+    </style></head><body>
+    <h2>Proxy Debug</h2>
+    <div class="nav"><b style="color:#888">Historico:</b><br>${allEntriesNav}</div>
+    <div style="margin-bottom:16px">
+      <div class="stat">Modelo pedido: <span>${entry.model_requested}</span></div>
+      <div class="stat">Mapeado: <span>${entry.model_mapped}</span></div>
+      <div class="stat">Total msgs: <span>${entry.total_messages}</span></div>
+      <div class="stat">Tokens est.: <span>${entry.estimated_tokens.toLocaleString()}</span></div>
+      <div class="stat">Temperature: <span>${entry.temperature??'default'}</span></div>
+      <div class="stat">Max tokens: <span>${entry.max_tokens??'default'}</span></div>
+      <div class="stat">Stream: <span>${entry.stream?'sim':'nao'}</span></div>
+    </div>
+    <h3 style="color:#0af">Mensagens (${entry.total_messages} total)</h3>
+    ${messagesHTML}<br>
+    <button onclick="location.reload()" style="background:#0f0;color:#000;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;margin-right:10px">Atualizar</button>
+    <a href="/debug/raw" style="background:#333;color:#eee;padding:10px 20px;border-radius:6px;text-decoration:none">Ver JSON bruto</a>
+    </body></html>`);
 });
 
 app.get('/debug/raw', (req, res) => {
@@ -139,204 +123,123 @@ function limitMessagesByTokens(messages, maxTokens = 100000) {
   let totalTokens = 0;
   const keptMessages = [];
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    const tokens = estimateTokens(JSON.stringify(msg));
-    if (totalTokens + tokens <= maxTokens) {
-      keptMessages.unshift(msg);
-      totalTokens += tokens;
-    } else break;
+    const tokens = estimateTokens(JSON.stringify(messages[i]));
+    if (totalTokens + tokens <= maxTokens) { keptMessages.unshift(messages[i]); totalTokens += tokens; }
+    else break;
   }
   return keptMessages;
 }
 
-app.get('/health', (_, res) => {
-  res.json({ status: 'ok', service: 'OpenAI -> NVIDIA NIM Proxy (504 Fixed)' });
-});
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
 app.get('/v1/models', (_, res) => {
-  const models = Object.keys(MODEL_MAPPING).map(m => ({
+  res.json({ object: 'list', data: Object.keys(MODEL_MAPPING).map(m => ({
     id: m, object: 'model', created: Date.now(), owned_by: 'nvidia-nim-proxy'
-  }));
-  res.json({ object: 'list', data: models });
+  }))});
 });
 
-// FIX 1 + 2: Heartbeat + stream interno forçado para evitar 504
+// ============================================================
+// Chat completions
+// ============================================================
 app.post('/v1/chat/completions', async (req, res) => {
+  const { model, messages, temperature, max_tokens, stream } = req.body;
+  saveDebugEntry(req.body);
+
+  const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
+  const limitedMessages = limitMessagesByTokens(messages, 100000);
+
+  const nimRequest = {
+    model: nimModel,
+    messages: limitedMessages,
+    temperature: temperature ?? 1.0,
+    max_tokens: max_tokens ?? 16384,
+    extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
+    stream: true // sempre stream para a NVIDIA para manter conexao ativa
+  };
+
   try {
-    const { model, messages, temperature, max_tokens, stream } = req.body;
-    saveDebugEntry(req.body);
-
-    const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-    const limitedMessages = limitMessagesByTokens(messages, 100000);
-
-    // FIX 1: Sempre usar stream internamente para manter conexão viva
-    // Isso evita que o Render mate a conexão por inatividade
-    const useStream = true;
-
-    const nimRequest = {
-      model: nimModel,
-      messages: limitedMessages,
-      temperature: temperature ?? 1.0,
-      max_tokens: max_tokens ?? 16384,
-      extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
-      stream: useStream
-    };
-
-    // FIX 1: Configurar headers SSE antes da chamada à API
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Importante para Nginx/Render
-
-    // FIX 2: Heartbeat — envia comentário SSE a cada 20s para manter conexão viva
-    const heartbeatInterval = setInterval(() => {
-      try {
-        res.write(': keep-alive\n\n');
-      } catch (e) {
-        clearInterval(heartbeatInterval);
-      }
-    }, 20000);
-
-    let responseEnded = false;
-
-    const cleanup = () => {
-      if (!responseEnded) {
-        responseEnded = true;
-        clearInterval(heartbeatInterval);
-      }
-    };
-
-    res.on('close', cleanup);
-    res.on('finish', cleanup);
-
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
-      headers: {
-        'Authorization': `Bearer ${NIM_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${NIM_API_KEY}`, 'Content-Type': 'application/json' },
       responseType: 'stream',
       timeout: 600000
     });
 
-    // Se o cliente pediu resposta normal (não-stream), acumulamos e enviamos no final
-    if (!stream) {
+    // ---- MODO STREAM ----
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+
+      let buffer = '';
+      response.data.on('data', chunk => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          // IMPORTANTE: ignorar comentarios SSE (linhas que comecam com ':')
+          // Esses comentarios vem da NVIDIA como keep-alive e NAO devem ser repassados
+          if (line.startsWith(':')) continue;
+          if (!line.startsWith('data: ')) continue;
+          if (line.includes('[DONE]')) { res.write('data: [DONE]\n\n'); continue; }
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (!SHOW_REASONING && data.choices?.[0]?.delta?.reasoning_content)
+              delete data.choices[0].delta.reasoning_content;
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+          } catch {}
+        }
+      });
+      response.data.on('end', () => { if (!res.writableEnded) res.end(); });
+      response.data.on('error', err => { console.error('Stream error:', err.message); if (!res.writableEnded) res.end(); });
+
+    // ---- MODO NORMAL (acumula e responde JSON) ----
+    } else {
       let fullContent = '';
-      let lastChunkData = null;
+      let finishReason = 'stop';
+      let usageData = null;
       let buffer = '';
 
       response.data.on('data', chunk => {
         buffer += chunk.toString();
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
         for (const line of lines) {
+          if (line.startsWith(':')) continue; // ignora comentarios SSE
           if (!line.startsWith('data: ')) continue;
           if (line.includes('[DONE]')) continue;
-
           try {
             const data = JSON.parse(line.slice(6));
-            const delta = data.choices?.[0]?.delta;
-            if (delta?.content) fullContent += delta.content;
-            lastChunkData = data;
+            if (data.choices?.[0]?.delta?.content) fullContent += data.choices[0].delta.content;
+            if (data.choices?.[0]?.finish_reason) finishReason = data.choices[0].finish_reason;
+            if (data.usage) usageData = data.usage;
           } catch {}
         }
       });
-
       response.data.on('end', () => {
-        cleanup();
-
-        // Monta resposta no formato OpenAI normal
-        const openaiResponse = {
+        res.json({
           id: `chatcmpl-${Date.now()}`,
           object: 'chat.completion',
           created: Math.floor(Date.now() / 1000),
           model,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: fullContent },
-            finish_reason: lastChunkData?.choices?.[0]?.finish_reason || 'stop'
-          }],
-          usage: lastChunkData?.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
-        };
-
-        // Envia como evento SSE único e fecha
-        res.write(`data: ${JSON.stringify(openaiResponse)}\n\n`);
-        res.write('data: [DONE]\n\n');
-        res.end();
+          choices: [{ index: 0, message: { role: 'assistant', content: fullContent }, finish_reason: finishReason }],
+          usage: usageData ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+        });
       });
-
       response.data.on('error', err => {
-        console.error('Stream error (non-stream mode):', err.message);
-        cleanup();
-        if (!res.writableEnded) res.end();
-      });
-
-    } else {
-      // Modo stream normal — repassa chunks direto ao cliente
-      let buffer = '';
-
-      response.data.on('data', chunk => {
-        buffer += chunk.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-
-          if (line.includes('[DONE]')) {
-            res.write('data: [DONE]\n\n');
-            continue;
-          }
-
-          try {
-            const data = JSON.parse(line.slice(6));
-
-            if (!SHOW_REASONING && data.choices?.[0]?.delta?.reasoning_content) {
-              delete data.choices[0].delta.reasoning_content;
-            }
-
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
-          } catch {
-            res.write(line + '\n');
-          }
-        }
-      });
-
-      response.data.on('end', () => {
-        cleanup();
-        if (!res.writableEnded) res.end();
-      });
-
-      response.data.on('error', err => {
-        console.error('Stream error:', err.message);
-        cleanup();
-        if (!res.writableEnded) res.end();
+        console.error('Error (non-stream):', err.message);
+        if (!res.headersSent) res.status(500).json({ error: { message: err.message } });
       });
     }
 
   } catch (error) {
     console.error('Proxy error:', error.response?.data || error.message);
-
-    if (error.code === 'ECONNABORTED') {
-      console.error('Timeout - modelo demorou mais de 10 minutos');
-    }
-
-    // Se já começamos a resposta como SSE, encerra com evento de erro
-    if (res.headersSent) {
-      try {
-        res.write(`data: ${JSON.stringify({
-          error: { message: error.message || 'Internal server error', type: 'proxy_error' }
-        })}\n\n`);
-        res.end();
-      } catch {}
-    } else {
+    if (!res.headersSent) {
       res.status(error.response?.status || 500).json({
-        error: {
-          message: error.message || 'Internal server error',
-          type: 'proxy_error',
-          code: error.response?.status || 500
-        }
+        error: { message: error.message || 'Internal server error', type: 'proxy_error', code: error.response?.status || 500 }
       });
+    } else if (!res.writableEnded) {
+      res.end();
     }
   }
 });
@@ -345,18 +248,17 @@ app.all('*', (req, res) => {
   res.status(404).json({ error: { message: `Endpoint ${req.path} not found`, code: 404 } });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Proxy rodando na porta ${PORT}`);
-  console.log(`Health: http://localhost:${PORT}/health`);
-  console.log(`Debug: http://localhost:${PORT}/debug`);
-
   const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
   if (RENDER_URL) {
     setInterval(() => {
-      axios.get(`${RENDER_URL}/health`)
-        .then(() => console.log('Keep-alive ping OK'))
-        .catch(err => console.warn(`Keep-alive falhou: ${err.message}`));
+      axios.get(`${RENDER_URL}/health`).then(() => console.log('Keep-alive OK')).catch(err => console.warn(`Keep-alive falhou: ${err.message}`));
     }, 10 * 60 * 1000);
-    console.log(`Keep-alive ativo -> ${RENDER_URL}/health`);
   }
 });
+
+// FIX: timeouts do servidor maiores que o timeout do axios
+server.setTimeout(0);
+server.keepAliveTimeout = 620000;
+server.headersTimeout = 630000;
