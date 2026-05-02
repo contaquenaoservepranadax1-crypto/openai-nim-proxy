@@ -18,9 +18,6 @@ app.use((req, res, next) => {
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
-// DESATIVADO: thinking mode causa output de lixo/exclamacoes no JanitorAI
-const ENABLE_THINKING_MODE = false;
-
 const MODEL_MAPPING = {
   'gpt-3.5-turbo':   'moonshotai/kimi-k2.5',
   'gpt-4':           'deepseek-ai/deepseek-v3-0324',
@@ -30,6 +27,59 @@ const MODEL_MAPPING = {
   'claude-3-opus':   'z-ai/glm4.7',
   'gemini-pro':      'minimaxai/minimax-m2.5'
 };
+
+// ============================================================
+// Filtro de thinking: remove <think>...</think> do conteudo
+// Funciona mesmo se o bloco vier partido em varios chunks
+// ============================================================
+function createThinkingFilter() {
+  let insideThink = false;
+  let buffer = '';
+
+  return function filter(chunk) {
+    // Adiciona chunk ao buffer e processa
+    buffer += chunk;
+    let output = '';
+
+    while (buffer.length > 0) {
+      if (insideThink) {
+        // Procura pelo fechamento </think>
+        const closeIdx = buffer.indexOf('</think>');
+        if (closeIdx !== -1) {
+          // Encontrou o fechamento — descarta tudo ate aqui e continua
+          buffer = buffer.slice(closeIdx + 8); // 8 = '</think>'.length
+          insideThink = false;
+        } else {
+          // Nao encontrou ainda — pode ser que '</think>' esteja partido entre chunks
+          // Guarda os ultimos 8 chars no buffer e descarta o resto
+          if (buffer.length > 8) {
+            buffer = buffer.slice(buffer.length - 8);
+          }
+          break;
+        }
+      } else {
+        // Procura pelo inicio <think>
+        const openIdx = buffer.indexOf('<think>');
+        if (openIdx !== -1) {
+          // Emite tudo antes do <think>
+          output += buffer.slice(0, openIdx);
+          buffer = buffer.slice(openIdx + 7); // 7 = '<think>'.length
+          insideThink = true;
+        } else {
+          // Nao ha <think> — mas pode estar partido entre chunks
+          // Guarda os ultimos 7 chars no buffer, emite o resto
+          if (buffer.length > 7) {
+            output += buffer.slice(0, buffer.length - 7);
+            buffer = buffer.slice(buffer.length - 7);
+          }
+          break;
+        }
+      }
+    }
+
+    return output;
+  };
+}
 
 // ============================================================
 // Debug store
@@ -75,7 +125,6 @@ app.get('/debug', (req, res) => {
   if (debugStore.length === 0) {
     return res.send(`<html><body style="font-family:monospace;padding:20px;background:#111;color:#0f0">
       <h2>Debug - Nenhum request recebido ainda</h2>
-      <p>Faca uma mensagem no JanitorAI e recarregue esta pagina.</p>
     </body></html>`);
   }
   const entryIndex = Math.min(parseInt(req.query.entry || '0'), debugStore.length - 1);
@@ -120,9 +169,6 @@ app.get('/debug/raw', (req, res) => {
   res.json(debugStore[0]);
 });
 
-// ============================================================
-// Helpers
-// ============================================================
 function limitMessagesByTokens(messages, maxTokens = 100000) {
   if (!messages || messages.length === 0) return messages;
   let totalTokens = 0;
@@ -133,25 +179,6 @@ function limitMessagesByTokens(messages, maxTokens = 100000) {
     else break;
   }
   return keptMessages;
-}
-
-// Remove campos de raciocinio interno do delta (streaming)
-function sanitizeDelta(delta) {
-  if (!delta) return delta;
-  // Remove qualquer campo de reasoning/thinking para nao vazar ao cliente
-  delete delta.reasoning_content;
-  delete delta.thinking;
-  delete delta.reasoning;
-  return delta;
-}
-
-// Remove campos de raciocinio interno da mensagem (modo normal)
-function sanitizeMessage(message) {
-  if (!message) return message;
-  delete message.reasoning_content;
-  delete message.thinking;
-  delete message.reasoning;
-  return message;
 }
 
 // ============================================================
@@ -180,14 +207,9 @@ app.post('/v1/chat/completions', async (req, res) => {
     messages: limitedMessages,
     temperature: temperature ?? 1.0,
     max_tokens: max_tokens ?? 16384,
-    stream: true // sempre stream para manter conexao ativa no Render
-    // thinking mode DESATIVADO — causava output de lixo no JanitorAI
+    stream: true
+    // thinking mode desativado — modelos usam <think> dentro do content
   };
-
-  // Adiciona thinking mode apenas se explicitamente habilitado
-  if (ENABLE_THINKING_MODE) {
-    nimRequest.extra_body = { chat_template_kwargs: { thinking: true } };
-  }
 
   try {
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
@@ -203,32 +225,43 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
 
-      let buffer = '';
+      // Filtro de <think> por request (estado isolado por conversa)
+      const thinkFilter = createThinkingFilter();
+      let sseBuffer = '';
+
       response.data.on('data', chunk => {
-        buffer += chunk.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        sseBuffer += chunk.toString();
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
+
         for (const line of lines) {
-          if (line.startsWith(':')) continue; // ignora comentarios SSE
+          if (line.startsWith(':')) continue;
           if (!line.startsWith('data: ')) continue;
           if (line.includes('[DONE]')) { res.write('data: [DONE]\n\n'); continue; }
+
           try {
             const data = JSON.parse(line.slice(6));
+            const delta = data.choices?.[0]?.delta;
 
-            // Remove reasoning/thinking do delta antes de repassar
-            if (data.choices?.[0]?.delta) {
-              data.choices[0].delta = sanitizeDelta(data.choices[0].delta);
+            // Remove campos de reasoning do delta
+            if (delta) {
+              delete delta.reasoning_content;
+              delete delta.thinking;
+              delete delta.reasoning;
             }
 
-            // So repassa se houver conteudo real (evita chunks vazios de thinking)
-            const hasContent = data.choices?.[0]?.delta?.content !== undefined
-              || data.choices?.[0]?.finish_reason;
-            if (hasContent) {
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
+            // Filtra <think>...</think> do content em streaming
+            if (delta?.content) {
+              delta.content = thinkFilter(delta.content);
+              // Se o filtro consumiu tudo (estava dentro do <think>), nao envia chunk vazio
+              if (delta.content === '' && !data.choices?.[0]?.finish_reason) continue;
             }
+
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
           } catch {}
         }
       });
+
       response.data.on('end', () => { if (!res.writableEnded) res.end(); });
       response.data.on('error', err => {
         console.error('Stream error:', err.message);
@@ -237,40 +270,43 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     // ---- MODO NORMAL ----
     } else {
+      // Para modo normal, acumula tudo e remove <think> da string completa
       let fullContent = '';
       let finishReason = 'stop';
       let usageData = null;
-      let buffer = '';
+      let sseBuffer = '';
 
       response.data.on('data', chunk => {
-        buffer += chunk.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        sseBuffer += chunk.toString();
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
         for (const line of lines) {
           if (line.startsWith(':')) continue;
           if (!line.startsWith('data: ')) continue;
           if (line.includes('[DONE]')) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            // Acumula apenas content, ignora reasoning_content
-            if (data.choices?.[0]?.delta?.content) {
-              fullContent += data.choices[0].delta.content;
-            }
+            if (data.choices?.[0]?.delta?.content) fullContent += data.choices[0].delta.content;
             if (data.choices?.[0]?.finish_reason) finishReason = data.choices[0].finish_reason;
             if (data.usage) usageData = data.usage;
           } catch {}
         }
       });
+
       response.data.on('end', () => {
+        // Remove qualquer bloco <think>...</think> do texto completo
+        const cleanContent = fullContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
         res.json({
           id: `chatcmpl-${Date.now()}`,
           object: 'chat.completion',
           created: Math.floor(Date.now() / 1000),
           model,
-          choices: [{ index: 0, message: { role: 'assistant', content: fullContent }, finish_reason: finishReason }],
+          choices: [{ index: 0, message: { role: 'assistant', content: cleanContent }, finish_reason: finishReason }],
           usage: usageData ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
         });
       });
+
       response.data.on('error', err => {
         console.error('Error (non-stream):', err.message);
         if (!res.headersSent) res.status(500).json({ error: { message: err.message } });
