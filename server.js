@@ -9,7 +9,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 
-// FIX: TCP keep-alive para o Render nao fechar conexoes ociosas
 app.use((req, res, next) => {
   req.socket.setKeepAlive(true, 15000);
   req.socket.setTimeout(0);
@@ -19,8 +18,8 @@ app.use((req, res, next) => {
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
-const SHOW_REASONING = true;
-const ENABLE_THINKING_MODE = true;
+// DESATIVADO: thinking mode causa output de lixo/exclamacoes no JanitorAI
+const ENABLE_THINKING_MODE = false;
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo':   'moonshotai/kimi-k2.5',
@@ -32,6 +31,9 @@ const MODEL_MAPPING = {
   'gemini-pro':      'minimaxai/minimax-m2.5'
 };
 
+// ============================================================
+// Debug store
+// ============================================================
 const debugStore = [];
 const MAX_DEBUG_ENTRIES = 5;
 
@@ -118,6 +120,9 @@ app.get('/debug/raw', (req, res) => {
   res.json(debugStore[0]);
 });
 
+// ============================================================
+// Helpers
+// ============================================================
 function limitMessagesByTokens(messages, maxTokens = 100000) {
   if (!messages || messages.length === 0) return messages;
   let totalTokens = 0;
@@ -130,6 +135,28 @@ function limitMessagesByTokens(messages, maxTokens = 100000) {
   return keptMessages;
 }
 
+// Remove campos de raciocinio interno do delta (streaming)
+function sanitizeDelta(delta) {
+  if (!delta) return delta;
+  // Remove qualquer campo de reasoning/thinking para nao vazar ao cliente
+  delete delta.reasoning_content;
+  delete delta.thinking;
+  delete delta.reasoning;
+  return delta;
+}
+
+// Remove campos de raciocinio interno da mensagem (modo normal)
+function sanitizeMessage(message) {
+  if (!message) return message;
+  delete message.reasoning_content;
+  delete message.thinking;
+  delete message.reasoning;
+  return message;
+}
+
+// ============================================================
+// Routes
+// ============================================================
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
 app.get('/v1/models', (_, res) => {
@@ -153,9 +180,14 @@ app.post('/v1/chat/completions', async (req, res) => {
     messages: limitedMessages,
     temperature: temperature ?? 1.0,
     max_tokens: max_tokens ?? 16384,
-    extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
-    stream: true // sempre stream para a NVIDIA para manter conexao ativa
+    stream: true // sempre stream para manter conexao ativa no Render
+    // thinking mode DESATIVADO — causava output de lixo no JanitorAI
   };
+
+  // Adiciona thinking mode apenas se explicitamente habilitado
+  if (ENABLE_THINKING_MODE) {
+    nimRequest.extra_body = { chat_template_kwargs: { thinking: true } };
+  }
 
   try {
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
@@ -177,23 +209,33 @@ app.post('/v1/chat/completions', async (req, res) => {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
         for (const line of lines) {
-          // IMPORTANTE: ignorar comentarios SSE (linhas que comecam com ':')
-          // Esses comentarios vem da NVIDIA como keep-alive e NAO devem ser repassados
-          if (line.startsWith(':')) continue;
+          if (line.startsWith(':')) continue; // ignora comentarios SSE
           if (!line.startsWith('data: ')) continue;
           if (line.includes('[DONE]')) { res.write('data: [DONE]\n\n'); continue; }
           try {
             const data = JSON.parse(line.slice(6));
-            if (!SHOW_REASONING && data.choices?.[0]?.delta?.reasoning_content)
-              delete data.choices[0].delta.reasoning_content;
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+            // Remove reasoning/thinking do delta antes de repassar
+            if (data.choices?.[0]?.delta) {
+              data.choices[0].delta = sanitizeDelta(data.choices[0].delta);
+            }
+
+            // So repassa se houver conteudo real (evita chunks vazios de thinking)
+            const hasContent = data.choices?.[0]?.delta?.content !== undefined
+              || data.choices?.[0]?.finish_reason;
+            if (hasContent) {
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+            }
           } catch {}
         }
       });
       response.data.on('end', () => { if (!res.writableEnded) res.end(); });
-      response.data.on('error', err => { console.error('Stream error:', err.message); if (!res.writableEnded) res.end(); });
+      response.data.on('error', err => {
+        console.error('Stream error:', err.message);
+        if (!res.writableEnded) res.end();
+      });
 
-    // ---- MODO NORMAL (acumula e responde JSON) ----
+    // ---- MODO NORMAL ----
     } else {
       let fullContent = '';
       let finishReason = 'stop';
@@ -205,12 +247,15 @@ app.post('/v1/chat/completions', async (req, res) => {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
         for (const line of lines) {
-          if (line.startsWith(':')) continue; // ignora comentarios SSE
+          if (line.startsWith(':')) continue;
           if (!line.startsWith('data: ')) continue;
           if (line.includes('[DONE]')) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.choices?.[0]?.delta?.content) fullContent += data.choices[0].delta.content;
+            // Acumula apenas content, ignora reasoning_content
+            if (data.choices?.[0]?.delta?.content) {
+              fullContent += data.choices[0].delta.content;
+            }
             if (data.choices?.[0]?.finish_reason) finishReason = data.choices[0].finish_reason;
             if (data.usage) usageData = data.usage;
           } catch {}
@@ -253,12 +298,13 @@ const server = app.listen(PORT, () => {
   const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
   if (RENDER_URL) {
     setInterval(() => {
-      axios.get(`${RENDER_URL}/health`).then(() => console.log('Keep-alive OK')).catch(err => console.warn(`Keep-alive falhou: ${err.message}`));
+      axios.get(`${RENDER_URL}/health`)
+        .then(() => console.log('Keep-alive OK'))
+        .catch(err => console.warn(`Keep-alive falhou: ${err.message}`));
     }, 10 * 60 * 1000);
   }
 });
 
-// FIX: timeouts do servidor maiores que o timeout do axios
 server.setTimeout(0);
 server.keepAliveTimeout = 620000;
 server.headersTimeout = 630000;
