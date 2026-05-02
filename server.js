@@ -1,5 +1,4 @@
-
-// server.js - OpenAI to NVIDIA NIM API Proxy (OTIMIZADO PARA VELOCIDADE)
+// server.js - OpenAI to NVIDIA NIM API Proxy (CORRIGIDO PARA 504)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -7,43 +6,35 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 
-// NVIDIA NIM API config
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
-// Configurações de controle
 const SHOW_REASONING = true;
 const ENABLE_THINKING_MODE = true;
 
-// Model mapping - ATUALIZADO com DeepSeek V3.1 base (funciona!)
+// FIX 3: Modelos mais leves preferidos para evitar timeout
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'moonshotai/kimi-k2.5',  // ⚡ Teste tmb
-  'gpt-4': 'qwen/qwen3-coder-480b-a35b-instruct',              // 💭 Emocional
-  'gpt-4-turbo': 'moonshotai/kimi-k2.6',                  // 🧠 DeepSeek V3.2
-  'gpt-4o': 'deepseek-ai/deepseek-v4-pro',                       // 🧠 DeepSeek V3.1 Terminus 
-  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1', // ⚡ Backup rápido
-  'claude-3-opus': 'z-ai/glm4.7',         // 🤔 Teste
-  'gemini-pro': 'minimaxai/minimax-m2.5'      // Outro teste 
+  'gpt-3.5-turbo': 'moonshotai/kimi-k2.5',
+  'gpt-4': 'deepseek-ai/deepseek-v3-0324',
+  'gpt-4-turbo': 'moonshotai/kimi-k2.6',
+  'gpt-4o': 'deepseek-ai/deepseek-v4-pro',
+  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  'claude-3-opus': 'z-ai/glm4.7',
+  'gemini-pro': 'minimaxai/minimax-m2.5'
 };
 
-// ============================================================
-// 🔍 DEBUG STORE - guarda os últimos 5 requests recebidos
-// ============================================================
 const debugStore = [];
 const MAX_DEBUG_ENTRIES = 5;
 
-// Estimativa de tokens (simplificada)
 function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
 function saveDebugEntry(rawBody) {
   const messages = rawBody.messages || [];
-
   const entry = {
     timestamp: new Date().toISOString(),
     model_requested: rawBody.model,
@@ -63,7 +54,6 @@ function saveDebugEntry(rawBody) {
         : (m.content || '')
     }))
   };
-
   debugStore.unshift(entry);
   if (debugStore.length > MAX_DEBUG_ENTRIES) debugStore.pop();
 }
@@ -76,15 +66,12 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-// ============================================================
-// 🔍 ENDPOINT DE DEBUG - abre no browser
-// ============================================================
 app.get('/debug', (req, res) => {
   if (debugStore.length === 0) {
     return res.send(`
       <html><body style="font-family:monospace;padding:20px;background:#111;color:#0f0">
-        <h2>🔍 Debug — Nenhum request recebido ainda</h2>
-        <p>Faça uma mensagem no JanitorAI e recarregue esta página.</p>
+        <h2>Debug — Nenhum request recebido ainda</h2>
+        <p>Faca uma mensagem no JanitorAI e recarregue esta pagina.</p>
       </body></html>
     `);
   }
@@ -108,73 +95,49 @@ app.get('/debug', (req, res) => {
 
   const allEntriesNav = debugStore.map((e, i) => `
     <a href="/debug?entry=${i}" style="color:${i === entryIndex ? '#0f0' : '#666'};margin-right:15px;text-decoration:none;font-size:12px">
-      ${i === entryIndex ? '▶ ' : ''}[${i}] ${e.timestamp} — ${e.total_messages} msgs
+      ${i === entryIndex ? '> ' : ''}[${i}] ${e.timestamp} - ${e.total_messages} msgs
     </a>
   `).join('<br>');
 
   res.send(`
     <html>
-    <head>
-      <title>🔍 Proxy Debug</title>
-      <meta charset="utf-8">
-      <style>
-        body { font-family: monospace; padding: 20px; background: #111; color: #eee; }
-        h2 { color: #0f0; }
-        .stat { display: inline-block; background: #222; padding: 6px 14px; border-radius: 6px; margin: 4px; font-size: 13px; }
-        .stat span { color: #0f0; font-weight: bold; }
-        .nav { background: #1a1a1a; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 12px; line-height: 2; }
-      </style>
-    </head>
+    <head><title>Proxy Debug</title><meta charset="utf-8">
+    <style>
+      body{font-family:monospace;padding:20px;background:#111;color:#eee}
+      h2{color:#0f0}.stat{display:inline-block;background:#222;padding:6px 14px;border-radius:6px;margin:4px;font-size:13px}
+      .stat span{color:#0f0;font-weight:bold}.nav{background:#1a1a1a;padding:12px;border-radius:6px;margin-bottom:20px;font-size:12px;line-height:2}
+    </style></head>
     <body>
-      <h2>🔍 Proxy Debug</h2>
-
-      <div class="nav">
-        <b style="color:#888">Histórico (últimos ${MAX_DEBUG_ENTRIES} requests):</b><br>
-        ${allEntriesNav}
-      </div>
-
+      <h2>Proxy Debug</h2>
+      <div class="nav"><b style="color:#888">Historico (ultimos ${MAX_DEBUG_ENTRIES} requests):</b><br>${allEntriesNav}</div>
       <div style="margin-bottom:16px">
-        <div class="stat">🕐 <span>${entry.timestamp}</span></div>
-        <div class="stat">🤖 Modelo pedido: <span>${entry.model_requested}</span></div>
-        <div class="stat">🔀 Mapeado para: <span>${entry.model_mapped}</span></div>
-        <div class="stat">📨 Total mensagens: <span>${entry.total_messages}</span></div>
-        <div class="stat">🔢 Tokens estimados: <span>${entry.estimated_tokens.toLocaleString()}</span></div>
-        <div class="stat">🌡️ Temperature: <span>${entry.temperature ?? 'default'}</span></div>
-        <div class="stat">📏 Max tokens: <span>${entry.max_tokens ?? 'default'}</span></div>
-        <div class="stat">📡 Stream: <span>${entry.stream ? 'sim' : 'não'}</span></div>
+        <div class="stat">Timestamp: <span>${entry.timestamp}</span></div>
+        <div class="stat">Modelo pedido: <span>${entry.model_requested}</span></div>
+        <div class="stat">Mapeado para: <span>${entry.model_mapped}</span></div>
+        <div class="stat">Total msgs: <span>${entry.total_messages}</span></div>
+        <div class="stat">Tokens est.: <span>${entry.estimated_tokens.toLocaleString()}</span></div>
+        <div class="stat">Temperature: <span>${entry.temperature ?? 'default'}</span></div>
+        <div class="stat">Max tokens: <span>${entry.max_tokens ?? 'default'}</span></div>
+        <div class="stat">Stream: <span>${entry.stream ? 'sim' : 'nao'}</span></div>
       </div>
-
-      <h3 style="color:#0af">📋 Mensagens (${entry.total_messages} total) — conteúdos longos truncados</h3>
+      <h3 style="color:#0af">Mensagens (${entry.total_messages} total)</h3>
       ${messagesHTML}
-
       <br>
-      <button onclick="location.reload()" style="background:#0f0;color:#000;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;margin-right:10px">
-        🔄 Atualizar
-      </button>
-      <a href="/debug/raw" style="background:#333;color:#eee;padding:10px 20px;border-radius:6px;text-decoration:none">
-        📄 Ver JSON bruto
-      </a>
-    </body>
-    </html>
+      <button onclick="location.reload()" style="background:#0f0;color:#000;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;margin-right:10px">Atualizar</button>
+      <a href="/debug/raw" style="background:#333;color:#eee;padding:10px 20px;border-radius:6px;text-decoration:none">Ver JSON bruto</a>
+    </body></html>
   `);
 });
 
 app.get('/debug/raw', (req, res) => {
-  if (debugStore.length === 0) {
-    return res.json({ message: 'Nenhum request recebido ainda.' });
-  }
+  if (debugStore.length === 0) return res.json({ message: 'Nenhum request recebido ainda.' });
   res.json(debugStore[0]);
 });
 
-// ============================================================
-
-// Limite adaptativo de histórico (AUMENTADO)
 function limitMessagesByTokens(messages, maxTokens = 100000) {
   if (!messages || messages.length === 0) return messages;
-
   let totalTokens = 0;
   const keptMessages = [];
-
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     const tokens = estimateTokens(JSON.stringify(msg));
@@ -183,39 +146,32 @@ function limitMessagesByTokens(messages, maxTokens = 100000) {
       totalTokens += tokens;
     } else break;
   }
-
   return keptMessages;
 }
 
-// Health check
 app.get('/health', (_, res) => {
-  res.json({
-    status: 'ok',
-    service: 'OpenAI → NVIDIA NIM Proxy (Speed Optimized)'
-  });
+  res.json({ status: 'ok', service: 'OpenAI -> NVIDIA NIM Proxy (504 Fixed)' });
 });
 
-// List models
 app.get('/v1/models', (_, res) => {
   const models = Object.keys(MODEL_MAPPING).map(m => ({
-    id: m,
-    object: 'model',
-    created: Date.now(),
-    owned_by: 'nvidia-nim-proxy'
+    id: m, object: 'model', created: Date.now(), owned_by: 'nvidia-nim-proxy'
   }));
   res.json({ object: 'list', data: models });
 });
 
-// Chat completions (OTIMIZADO)
+// FIX 1 + 2: Heartbeat + stream interno forçado para evitar 504
 app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { model, messages, temperature, max_tokens, stream } = req.body;
-
-    // 🔍 Salva para debug ANTES de qualquer processamento
     saveDebugEntry(req.body);
 
     const nimModel = MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
     const limitedMessages = limitMessagesByTokens(messages, 100000);
+
+    // FIX 1: Sempre usar stream internamente para manter conexão viva
+    // Isso evita que o Render mate a conexão por inatividade
+    const useStream = true;
 
     const nimRequest = {
       model: nimModel,
@@ -223,25 +179,100 @@ app.post('/v1/chat/completions', async (req, res) => {
       temperature: temperature ?? 1.0,
       max_tokens: max_tokens ?? 16384,
       extra_body: ENABLE_THINKING_MODE ? { chat_template_kwargs: { thinking: true } } : undefined,
-      stream: !!stream
+      stream: useStream
     };
 
-    // ⚡ TIMEOUT EXTREMO para DeepSeek (pode demorar 5+ minutos!)
+    // FIX 1: Configurar headers SSE antes da chamada à API
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Importante para Nginx/Render
+
+    // FIX 2: Heartbeat — envia comentário SSE a cada 20s para manter conexão viva
+    const heartbeatInterval = setInterval(() => {
+      try {
+        res.write(': keep-alive\n\n');
+      } catch (e) {
+        clearInterval(heartbeatInterval);
+      }
+    }, 20000);
+
+    let responseEnded = false;
+
+    const cleanup = () => {
+      if (!responseEnded) {
+        responseEnded = true;
+        clearInterval(heartbeatInterval);
+      }
+    };
+
+    res.on('close', cleanup);
+    res.on('finish', cleanup);
+
     const response = await axios.post(`${NIM_API_BASE}/chat/completions`, nimRequest, {
       headers: {
         'Authorization': `Bearer ${NIM_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      responseType: stream ? 'stream' : 'json',
-      timeout: 600000 // ⚠️ 10 MINUTOS (extremo!)
+      responseType: 'stream',
+      timeout: 600000
     });
 
-    // STREAM MODE
-    if (stream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
+    // Se o cliente pediu resposta normal (não-stream), acumulamos e enviamos no final
+    if (!stream) {
+      let fullContent = '';
+      let lastChunkData = null;
+      let buffer = '';
 
+      response.data.on('data', chunk => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          if (line.includes('[DONE]')) continue;
+
+          try {
+            const data = JSON.parse(line.slice(6));
+            const delta = data.choices?.[0]?.delta;
+            if (delta?.content) fullContent += delta.content;
+            lastChunkData = data;
+          } catch {}
+        }
+      });
+
+      response.data.on('end', () => {
+        cleanup();
+
+        // Monta resposta no formato OpenAI normal
+        const openaiResponse = {
+          id: `chatcmpl-${Date.now()}`,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: fullContent },
+            finish_reason: lastChunkData?.choices?.[0]?.finish_reason || 'stop'
+          }],
+          usage: lastChunkData?.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+        };
+
+        // Envia como evento SSE único e fecha
+        res.write(`data: ${JSON.stringify(openaiResponse)}\n\n`);
+        res.write('data: [DONE]\n\n');
+        res.end();
+      });
+
+      response.data.on('error', err => {
+        console.error('Stream error (non-stream mode):', err.message);
+        cleanup();
+        if (!res.writableEnded) res.end();
+      });
+
+    } else {
+      // Modo stream normal — repassa chunks direto ao cliente
       let buffer = '';
 
       response.data.on('data', chunk => {
@@ -271,32 +302,16 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
       });
 
-      response.data.on('end', () => res.end());
+      response.data.on('end', () => {
+        cleanup();
+        if (!res.writableEnded) res.end();
+      });
+
       response.data.on('error', err => {
         console.error('Stream error:', err.message);
-        res.end();
+        cleanup();
+        if (!res.writableEnded) res.end();
       });
-    }
-
-    // NORMAL MODE
-    else {
-      const openaiResponse = {
-        id: `chatcmpl-${Date.now()}`,
-        object: 'chat.completion',
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: response.data.choices.map(choice => ({
-          index: choice.index,
-          message: {
-            role: choice.message.role,
-            content: choice.message?.content || ''
-          },
-          finish_reason: choice.finish_reason
-        })),
-        usage: response.data.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
-      };
-
-      res.json(openaiResponse);
     }
 
   } catch (error) {
@@ -306,37 +321,42 @@ app.post('/v1/chat/completions', async (req, res) => {
       console.error('Timeout - modelo demorou mais de 10 minutos');
     }
 
-    res.status(error.response?.status || 500).json({
-      error: {
-        message: error.message || 'Internal server error',
-        type: 'proxy_error',
-        code: error.response?.status || 500
-      }
-    });
+    // Se já começamos a resposta como SSE, encerra com evento de erro
+    if (res.headersSent) {
+      try {
+        res.write(`data: ${JSON.stringify({
+          error: { message: error.message || 'Internal server error', type: 'proxy_error' }
+        })}\n\n`);
+        res.end();
+      } catch {}
+    } else {
+      res.status(error.response?.status || 500).json({
+        error: {
+          message: error.message || 'Internal server error',
+          type: 'proxy_error',
+          code: error.response?.status || 500
+        }
+      });
+    }
   }
 });
 
-// Fallback
 app.all('*', (req, res) => {
-  res.status(404).json({
-    error: { message: `Endpoint ${req.path} not found`, code: 404 }
-  });
+  res.status(404).json({ error: { message: `Endpoint ${req.path} not found`, code: 404 } });
 });
 
 app.listen(PORT, () => {
-  console.log(`⚡ Proxy OTIMIZADO rodando na porta ${PORT}`);
-  console.log(`🌐 Health: http://localhost:${PORT}/health`);
-  console.log(`🔍 Debug: http://localhost:${PORT}/debug`);
-  console.log(`🚀 Modo: Velocidade Máxima`);
+  console.log(`Proxy rodando na porta ${PORT}`);
+  console.log(`Health: http://localhost:${PORT}/health`);
+  console.log(`Debug: http://localhost:${PORT}/debug`);
 
-  // Self-ping a cada 10 minutos para o Render não dormir
   const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
   if (RENDER_URL) {
     setInterval(() => {
       axios.get(`${RENDER_URL}/health`)
-        .then(() => console.log(`🏓 Keep-alive ping OK`))
-        .catch(err => console.warn(`⚠️ Keep-alive falhou: ${err.message}`));
+        .then(() => console.log('Keep-alive ping OK'))
+        .catch(err => console.warn(`Keep-alive falhou: ${err.message}`));
     }, 10 * 60 * 1000);
-    console.log(`🏓 Keep-alive ativo → ${RENDER_URL}/health`);
+    console.log(`Keep-alive ativo -> ${RENDER_URL}/health`);
   }
 });
