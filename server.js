@@ -19,13 +19,13 @@ const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.c
 const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo':   'moonshotai/kimi-k2.5',
-  'gpt-4':           'deepseek-ai/deepseek-v3-0324',
-  'gpt-4-turbo':     'moonshotai/kimi-k2.6',
-  'gpt-4o':          'deepseek-ai/deepseek-v4-pro',
-  'gpt-4o-nemotron': 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-  'claude-3-opus':   'z-ai/glm4.7',
-  'gemini-pro':      'minimaxai/minimax-m2.5'
+  'gpt-3.5-turbo': 'z-ai/glm4.7',
+  'gpt-4': 'z-ai/glm-5.1',
+  'gpt-4-turbo': 'moonshotai/kimi-k2.6',
+  'gpt-4o': 'deepseek-ai/deepseek-v4-pro',
+  'claude-3-opus': 'openai/gpt-oss-120b',
+  'claude-3-sonnet': 'openai/gpt-oss-20b',
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking' 
 };
 
 // ============================================================
