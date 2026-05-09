@@ -1,4 +1,5 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy (THINKING ENABLED + JANITOR FIX)
+// server.js - OpenAI to NVIDIA NIM API Proxy
+// THINKING ENABLED + JANITOR THINKING BOX FIX + FORMAT FIX
 
 const express = require('express');
 const cors = require('cors');
@@ -41,7 +42,7 @@ const MODEL_MAPPING = {
   'claude-3-opus': 'openai/gpt-oss-120b',
   'claude-3-sonnet': 'openai/gpt-oss-20b',
 
-  // Modelo focado em thinking
+  // thinking model
   'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
 };
 
@@ -60,26 +61,54 @@ function modelSupportsThinking(modelName) {
 }
 
 // ============================================================
-// FORMAT FIX FOR JANITOR
+// FORMAT FIX
 // ============================================================
 
 function improveFormatting(text) {
   if (!text) return text;
 
   return text
-    // quebra frases grandes
-    .replace(/([.!?])\s+(?=[A-Z])/g, '$1\n\n')
 
-    // quebra diálogos
-    .replace(/"\s*(?=[A-Z])/g, '"\n\n')
-
-    // quebra ações longas
-    .replace(/\*\s*(?=[A-Z])/g, '\n\n* ')
-
-    // remove excesso de linhas
+    // remove quebras absurdas
     .replace(/\n{3,}/g, '\n\n')
 
+    // remove espaços entre linhas
+    .replace(/\n[ \t]+\n/g, '\n\n')
+
+    // remove espaços gigantes
+    .replace(/[ \t]{3,}/g, ' ')
+
     .trim();
+}
+
+// ============================================================
+// THINKING EXTRACTOR
+// ============================================================
+
+function extractThinking(text) {
+  if (!text) {
+    return {
+      content: '',
+      reasoning: ''
+    };
+  }
+
+  let reasoning = '';
+
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
+
+  const cleanContent = text.replace(
+    thinkRegex,
+    (_, thinkContent) => {
+      reasoning += thinkContent.trim() + '\n';
+      return '';
+    }
+  );
+
+  return {
+    content: cleanContent.trim(),
+    reasoning: reasoning.trim()
+  };
 }
 
 // ============================================================
@@ -98,10 +127,12 @@ function saveDebugEntry(rawBody) {
 
   const entry = {
     timestamp: new Date().toISOString(),
+
     model_requested: rawBody.model,
 
     model_mapped:
-      MODEL_MAPPING[rawBody.model] || 'meta/llama-3.1-70b-instruct',
+      MODEL_MAPPING[rawBody.model] ||
+      'meta/llama-3.1-70b-instruct',
 
     temperature: rawBody.temperature,
     max_tokens: rawBody.max_tokens,
@@ -110,7 +141,8 @@ function saveDebugEntry(rawBody) {
     total_messages: messages.length,
 
     estimated_tokens: messages.reduce(
-      (sum, m) => sum + estimateTokens(JSON.stringify(m)),
+      (sum, m) =>
+        sum + estimateTokens(JSON.stringify(m)),
       0
     ),
 
@@ -120,7 +152,9 @@ function saveDebugEntry(rawBody) {
 
       char_length: (m.content || '').length,
 
-      estimated_tokens: estimateTokens(JSON.stringify(m)),
+      estimated_tokens: estimateTokens(
+        JSON.stringify(m)
+      ),
 
       content_preview:
         (m.content || '').length > 600
@@ -172,7 +206,9 @@ app.get('/debug', (req, res) => {
     .map(
       (m) => `
     <div style="border:1px solid #333;margin:8px 0;padding:12px;border-radius:6px;background:#1a1a1a">
+
       <div style="margin-bottom:8px">
+
         <span style="
           background:${
             m.role === 'system'
@@ -181,6 +217,7 @@ app.get('/debug', (req, res) => {
               ? '#003a4a'
               : '#1a3a00'
           };
+
           padding:2px 8px;
           border-radius:4px;
           font-size:12px
@@ -191,6 +228,7 @@ app.get('/debug', (req, res) => {
         <span style="color:#888;font-size:12px;margin-left:10px">
           ${m.char_length} chars · ~${m.estimated_tokens} tokens
         </span>
+
       </div>
 
       <pre style="
@@ -200,6 +238,7 @@ app.get('/debug', (req, res) => {
         font-size:13px;
         margin:0
       ">${escapeHtml(m.content_preview)}</pre>
+
     </div>
   `
     )
@@ -207,10 +246,13 @@ app.get('/debug', (req, res) => {
 
   res.send(`
     <html>
+
     <head>
+
       <title>Proxy Debug</title>
 
       <style>
+
         body{
           font-family:monospace;
           padding:20px;
@@ -235,7 +277,9 @@ app.get('/debug', (req, res) => {
           color:#0f0;
           font-weight:bold
         }
+
       </style>
+
     </head>
 
     <body>
@@ -243,7 +287,7 @@ app.get('/debug', (req, res) => {
       <h2>Proxy Debug</h2>
 
       <div class="stat">
-        Modelo pedido:
+        Modelo:
         <span>${entry.model_requested}</span>
       </div>
 
@@ -269,6 +313,7 @@ app.get('/debug', (req, res) => {
       ${messagesHTML}
 
     </body>
+
     </html>
   `);
 });
@@ -287,16 +332,23 @@ app.get('/debug/raw', (req, res) => {
 // TOKEN LIMITER
 // ============================================================
 
-function limitMessagesByTokens(messages, maxTokens = 100000) {
+function limitMessagesByTokens(
+  messages,
+  maxTokens = 100000
+) {
   if (!messages || messages.length === 0) {
     return messages;
   }
 
   let totalTokens = 0;
+
   const keptMessages = [];
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const tokens = estimateTokens(JSON.stringify(messages[i]));
+
+    const tokens = estimateTokens(
+      JSON.stringify(messages[i])
+    );
 
     if (totalTokens + tokens <= maxTokens) {
       keptMessages.unshift(messages[i]);
@@ -338,6 +390,7 @@ app.get('/v1/models', (_, res) => {
 // ============================================================
 
 app.post('/v1/chat/completions', async (req, res) => {
+
   const {
     model,
     messages,
@@ -349,12 +402,11 @@ app.post('/v1/chat/completions', async (req, res) => {
   saveDebugEntry(req.body);
 
   const nimModel =
-    MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
+    MODEL_MAPPING[model] ||
+    'meta/llama-3.1-70b-instruct';
 
-  const limitedMessages = limitMessagesByTokens(
-    messages,
-    100000
-  );
+  const limitedMessages =
+    limitMessagesByTokens(messages, 100000);
 
   // ============================================================
   // NIM REQUEST
@@ -373,20 +425,24 @@ app.post('/v1/chat/completions', async (req, res) => {
   };
 
   // ============================================================
-  // ENABLE THINKING ONLY IF SUPPORTED
+  // ENABLE THINKING
   // ============================================================
 
   if (modelSupportsThinking(nimModel)) {
+
     nimRequest.extra_body = {
+
       chat_template_kwargs: {
         thinking: true,
         enable_thinking: true,
         clear_thinking: true
       }
+
     };
   }
 
   try {
+
     const response = await axios.post(
       `${NIM_API_BASE}/chat/completions`,
       nimRequest,
@@ -407,14 +463,31 @@ app.post('/v1/chat/completions', async (req, res) => {
     // ============================================================
 
     if (stream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
+
+      res.setHeader(
+        'Content-Type',
+        'text/event-stream'
+      );
+
+      res.setHeader(
+        'Cache-Control',
+        'no-cache'
+      );
+
+      res.setHeader(
+        'Connection',
+        'keep-alive'
+      );
+
+      res.setHeader(
+        'X-Accel-Buffering',
+        'no'
+      );
 
       let sseBuffer = '';
 
       response.data.on('data', (chunk) => {
+
         sseBuffer += chunk.toString();
 
         const lines = sseBuffer.split('\n');
@@ -422,46 +495,77 @@ app.post('/v1/chat/completions', async (req, res) => {
         sseBuffer = lines.pop() || '';
 
         for (const line of lines) {
+
           if (line.startsWith(':')) continue;
 
-          if (!line.startsWith('data: ')) continue;
+          if (!line.startsWith('data: '))
+            continue;
 
           if (line.includes('[DONE]')) {
+
             res.write('data: [DONE]\n\n');
+
             continue;
           }
 
           try {
-            const data = JSON.parse(line.slice(6));
 
-            const delta = data.choices?.[0]?.delta;
+            const data = JSON.parse(
+              line.slice(6)
+            );
 
-            // FORMATA TEXTO
+            const delta =
+              data.choices?.[0]?.delta;
+
             if (delta?.content) {
-              delta.content = improveFormatting(
-                delta.content
-              );
+
+              // ============================================
+              // EXTRACT THINKING
+              // ============================================
+
+              const extracted =
+                extractThinking(delta.content);
+
+              // envia thinking separado
+              if (extracted.reasoning) {
+                delta.reasoning_content =
+                  extracted.reasoning;
+              }
+
+              // conteúdo limpo
+              delta.content =
+                improveFormatting(
+                  extracted.content
+                );
             }
 
-            // NÃO remover reasoning_content
-            // NÃO remover thinking
-            // NÃO remover reasoning
+            res.write(
+              `data: ${JSON.stringify(data)}\n\n`
+            );
 
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
           } catch (err) {
-            console.error('Chunk parse error:', err.message);
+
+            console.error(
+              'Chunk parse error:',
+              err.message
+            );
           }
         }
       });
 
       response.data.on('end', () => {
+
         if (!res.writableEnded) {
           res.end();
         }
       });
 
       response.data.on('error', (err) => {
-        console.error('Stream error:', err.message);
+
+        console.error(
+          'Stream error:',
+          err.message
+        );
 
         if (!res.writableEnded) {
           res.end();
@@ -473,13 +577,17 @@ app.post('/v1/chat/completions', async (req, res) => {
     // ============================================================
 
     } else {
+
       let fullContent = '';
+      let globalReasoning = '';
+
       let finishReason = 'stop';
       let usageData = null;
 
       let sseBuffer = '';
 
       response.data.on('data', (chunk) => {
+
         sseBuffer += chunk.toString();
 
         const lines = sseBuffer.split('\n');
@@ -487,24 +595,45 @@ app.post('/v1/chat/completions', async (req, res) => {
         sseBuffer = lines.pop() || '';
 
         for (const line of lines) {
+
           if (line.startsWith(':')) continue;
 
-          if (!line.startsWith('data: ')) continue;
+          if (!line.startsWith('data: '))
+            continue;
 
-          if (line.includes('[DONE]')) continue;
+          if (line.includes('[DONE]'))
+            continue;
 
           try {
-            const data = JSON.parse(line.slice(6));
 
-            const delta = data.choices?.[0]?.delta;
+            const data = JSON.parse(
+              line.slice(6)
+            );
+
+            const delta =
+              data.choices?.[0]?.delta;
 
             if (delta?.content) {
-              fullContent += delta.content;
+
+              const extracted =
+                extractThinking(delta.content);
+
+              if (extracted.reasoning) {
+                globalReasoning +=
+                  extracted.reasoning + '\n';
+              }
+
+              fullContent += improveFormatting(
+                extracted.content
+              );
             }
 
-            if (data.choices?.[0]?.finish_reason) {
+            if (
+              data.choices?.[0]?.finish_reason
+            ) {
               finishReason =
-                data.choices[0].finish_reason;
+                data.choices[0]
+                  .finish_reason;
             }
 
             if (data.usage) {
@@ -517,14 +646,15 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       response.data.on('end', () => {
 
-        fullContent = improveFormatting(fullContent);
-
         res.json({
+
           id: `chatcmpl-${Date.now()}`,
 
           object: 'chat.completion',
 
-          created: Math.floor(Date.now() / 1000),
+          created: Math.floor(
+            Date.now() / 1000
+          ),
 
           model,
 
@@ -534,7 +664,13 @@ app.post('/v1/chat/completions', async (req, res) => {
 
               message: {
                 role: 'assistant',
-                content: fullContent
+
+                content: improveFormatting(
+                  fullContent
+                ),
+
+                reasoning_content:
+                  globalReasoning.trim()
               },
 
               finish_reason: finishReason
@@ -551,12 +687,14 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('error', (err) => {
+
         console.error(
           'Error (non-stream):',
           err.message
         );
 
         if (!res.headersSent) {
+
           res.status(500).json({
             error: {
               message: err.message
@@ -567,23 +705,32 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
 
   } catch (error) {
+
     console.error(
       'Proxy error:',
-      error.response?.data || error.message
+      error.response?.data ||
+      error.message
     );
 
     if (!res.headersSent) {
-      res.status(error.response?.status || 500).json({
+
+      res.status(
+        error.response?.status || 500
+      ).json({
         error: {
           message:
-            error.message || 'Internal server error',
+            error.message ||
+            'Internal server error',
 
           type: 'proxy_error',
 
-          code: error.response?.status || 500
+          code:
+            error.response?.status || 500
         }
       });
+
     } else if (!res.writableEnded) {
+
       res.end();
     }
   }
@@ -594,6 +741,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 // ============================================================
 
 app.all('*', (req, res) => {
+
   res.status(404).json({
     error: {
       message: `Endpoint ${req.path} not found`,
@@ -607,20 +755,31 @@ app.all('*', (req, res) => {
 // ============================================================
 
 const server = app.listen(PORT, () => {
-  console.log(`✅ Proxy rodando na porta ${PORT}`);
 
-  const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+  console.log(
+    `✅ Proxy rodando na porta ${PORT}`
+  );
+
+  const RENDER_URL =
+    process.env.RENDER_EXTERNAL_URL;
 
   if (RENDER_URL) {
+
     setInterval(() => {
+
       axios
         .get(`${RENDER_URL}/health`)
-        .then(() => console.log('🏓 Keep-alive OK'))
+
+        .then(() =>
+          console.log('🏓 Keep-alive OK')
+        )
+
         .catch((err) =>
           console.warn(
             `⚠️ Keep-alive falhou: ${err.message}`
           )
         );
+
     }, 10 * 60 * 1000);
   }
 });
