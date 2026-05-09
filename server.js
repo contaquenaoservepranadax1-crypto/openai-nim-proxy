@@ -69,14 +69,26 @@ function improveFormatting(text) {
 
   return text
 
-    // remove quebras absurdas
-    .replace(/\n{3,}/g, '\n\n')
-
-    // remove espaços entre linhas
-    .replace(/\n[ \t]+\n/g, '\n\n')
+    // normaliza CRLF
+    .replace(/\r/g, '')
 
     // remove espaços gigantes
-    .replace(/[ \t]{3,}/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+
+    // remove espaços em linhas vazias
+    .replace(/\n[ \t]+\n/g, '\n\n')
+
+    // adiciona quebra entre frases SOMENTE quando faz sentido
+    .replace(/([.!?]) ([A-Z])/g, '$1\n\n$2')
+
+    // diálogos
+    .replace(/"([^\n]{15,}?)" ([A-Z])/g, '"$1"\n\n$2')
+
+    // ações RP
+    .replace(/\*([^*]{20,}?)\* ([A-Z])/g, '*$1*\n\n$2')
+
+    // evita 3+ linhas
+    .replace(/\n{3,}/g, '\n\n')
 
     .trim();
 }
@@ -519,24 +531,18 @@ app.post('/v1/chat/completions', async (req, res) => {
 
             if (delta?.content) {
 
-              // ============================================
-              // EXTRACT THINKING
-              // ============================================
-
               const extracted =
                 extractThinking(delta.content);
 
-              // envia thinking separado
+              // thinking separado
               if (extracted.reasoning) {
                 delta.reasoning_content =
                   extracted.reasoning;
               }
 
-              // conteúdo limpo
+              // NÃO formatar streaming
               delta.content =
-                improveFormatting(
-                  extracted.content
-                );
+                extracted.content;
             }
 
             res.write(
@@ -623,9 +629,7 @@ app.post('/v1/chat/completions', async (req, res) => {
                   extracted.reasoning + '\n';
               }
 
-              fullContent += improveFormatting(
-                extracted.content
-              );
+              fullContent += extracted.content;
             }
 
             if (
@@ -646,6 +650,9 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       response.data.on('end', () => {
 
+        fullContent =
+          improveFormatting(fullContent);
+
         res.json({
 
           id: `chatcmpl-${Date.now()}`,
@@ -665,9 +672,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               message: {
                 role: 'assistant',
 
-                content: improveFormatting(
-                  fullContent
-                ),
+                content: fullContent,
 
                 reasoning_content:
                   globalReasoning.trim()
