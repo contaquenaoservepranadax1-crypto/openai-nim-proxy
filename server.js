@@ -1,4 +1,4 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy (THINKING ENABLED)
+// server.js - OpenAI to NVIDIA NIM API Proxy (THINKING ENABLED + JANITOR FIX)
 
 const express = require('express');
 const cors = require('cors');
@@ -46,6 +46,43 @@ const MODEL_MAPPING = {
 };
 
 // ============================================================
+// THINKING SUPPORT
+// ============================================================
+
+function modelSupportsThinking(modelName) {
+  const THINKING_MODELS = [
+    'z-ai/glm-5.1',
+    'qwen/qwen3-next-80b-a3b-thinking',
+    'deepseek-ai/deepseek-v4-pro'
+  ];
+
+  return THINKING_MODELS.includes(modelName);
+}
+
+// ============================================================
+// FORMAT FIX FOR JANITOR
+// ============================================================
+
+function improveFormatting(text) {
+  if (!text) return text;
+
+  return text
+    // quebra frases grandes
+    .replace(/([.!?])\s+(?=[A-Z])/g, '$1\n\n')
+
+    // quebra diálogos
+    .replace(/"\s*(?=[A-Z])/g, '"\n\n')
+
+    // quebra ações longas
+    .replace(/\*\s*(?=[A-Z])/g, '\n\n* ')
+
+    // remove excesso de linhas
+    .replace(/\n{3,}/g, '\n\n')
+
+    .trim();
+}
+
+// ============================================================
 // DEBUG STORE
 // ============================================================
 
@@ -62,6 +99,7 @@ function saveDebugEntry(rawBody) {
   const entry = {
     timestamp: new Date().toISOString(),
     model_requested: rawBody.model,
+
     model_mapped:
       MODEL_MAPPING[rawBody.model] || 'meta/llama-3.1-70b-instruct',
 
@@ -79,7 +117,9 @@ function saveDebugEntry(rawBody) {
     messages: messages.map((m, i) => ({
       index: i,
       role: m.role,
+
       char_length: (m.content || '').length,
+
       estimated_tokens: estimateTokens(JSON.stringify(m)),
 
       content_preview:
@@ -329,15 +369,22 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     max_tokens: max_tokens ?? 16384,
 
-    stream: true,
-
-    // THINKING ENABLED
-    extra_body: {
-      chat_template_kwargs: {
-        thinking: true
-      }
-    }
+    stream: true
   };
+
+  // ============================================================
+  // ENABLE THINKING ONLY IF SUPPORTED
+  // ============================================================
+
+  if (modelSupportsThinking(nimModel)) {
+    nimRequest.extra_body = {
+      chat_template_kwargs: {
+        thinking: true,
+        enable_thinking: true,
+        clear_thinking: true
+      }
+    };
+  }
 
   try {
     const response = await axios.post(
@@ -387,9 +434,18 @@ app.post('/v1/chat/completions', async (req, res) => {
           try {
             const data = JSON.parse(line.slice(6));
 
-            // NÃO remover reasoning
+            const delta = data.choices?.[0]?.delta;
+
+            // FORMATA TEXTO
+            if (delta?.content) {
+              delta.content = improveFormatting(
+                delta.content
+              );
+            }
+
+            // NÃO remover reasoning_content
             // NÃO remover thinking
-            // NÃO filtrar <think>
+            // NÃO remover reasoning
 
             res.write(`data: ${JSON.stringify(data)}\n\n`);
           } catch (err) {
@@ -454,11 +510,15 @@ app.post('/v1/chat/completions', async (req, res) => {
             if (data.usage) {
               usageData = data.usage;
             }
+
           } catch {}
         }
       });
 
       response.data.on('end', () => {
+
+        fullContent = improveFormatting(fullContent);
+
         res.json({
           id: `chatcmpl-${Date.now()}`,
 
