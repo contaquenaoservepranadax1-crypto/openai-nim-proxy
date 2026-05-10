@@ -1,4 +1,4 @@
-// server.js - OpenAI to NVIDIA NIM API Proxy (THINKING ENABLED)
+// server.js - OpenAI to NVIDIA NIM API Proxy
 
 const express = require('express');
 const cors = require('cors');
@@ -254,6 +254,25 @@ app.post('/v1/chat/completions', async (req, res) => {
 
   const limitedMessages = limitMessagesByTokens(messages, 100000);
 
+  // ============================================================
+  // Força parágrafos no system prompt
+  // ============================================================
+
+  const systemIndex = limitedMessages.findIndex(m => m.role === 'system');
+  if (systemIndex !== -1) {
+    limitedMessages[systemIndex].content +=
+      '\n\n[Formatting rule: You MUST separate each paragraph with a blank line. Never write a wall of text. Action beats, dialogue, and internal thoughts must each be in their own separate paragraph, with a blank line between them.]';
+  } else {
+    limitedMessages.unshift({
+      role: 'system',
+      content: '[Formatting rule: You MUST separate each paragraph with a blank line. Never write a wall of text. Action beats, dialogue, and internal thoughts must each be in their own separate paragraph, with a blank line between them.]'
+    });
+  }
+
+  // ============================================================
+  // chat_template_kwargs adaptado por modelo
+  // ============================================================
+
   const chatTemplateKwargs = isGLM51(nimModel)
     ? {
         thinking: true,
@@ -264,6 +283,10 @@ app.post('/v1/chat/completions', async (req, res) => {
     : {
         thinking: true
       };
+
+  // ============================================================
+  // NIM REQUEST
+  // ============================================================
 
   const nimRequest = {
     model: nimModel,
@@ -302,11 +325,6 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       let sseBuffer = '';
 
-      // Estado da acumulação do reasoning
-      let reasoningBuffer = '';
-      let reasoningClosed = false;
-      let firstContentSent = false;
-
       response.data.on('data', (chunk) => {
         sseBuffer += chunk.toString();
 
@@ -324,59 +342,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
           try {
             const data = JSON.parse(line.slice(6));
-            const delta = data.choices?.[0]?.delta;
-
-            if (!delta) {
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-              continue;
-            }
-
-            const hasReasoning = typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0;
-            const hasContent = typeof delta.content === 'string' && delta.content.length > 0;
-
-            // --- Chunk só com reasoning_content ---
-            if (hasReasoning && !hasContent) {
-              reasoningBuffer += delta.reasoning_content;
-
-              // Manda o reasoning acumulado como <think> ainda aberto
-              // Substitui delta para mandar só o pedaço novo como texto dentro da tag
-              if (reasoningBuffer === delta.reasoning_content) {
-                // Primeiro chunk de reasoning: abre a tag
-                delta.content = `<think>${delta.reasoning_content}`;
-              } else {
-                // Chunks seguintes: só o texto novo (tag já foi aberta)
-                delta.content = delta.reasoning_content;
-              }
-              delete delta.reasoning_content;
-
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-              continue;
-            }
-
-            // --- Primeiro chunk com content real (reasoning acabou) ---
-            if (hasContent && !reasoningClosed && reasoningBuffer.length > 0) {
-              reasoningClosed = true;
-              firstContentSent = true;
-
-              // Fecha a tag <think> e começa o content normal
-              delta.content = `</think>\n\n${delta.content}`;
-              delete delta.reasoning_content;
-
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-              continue;
-            }
-
-            // --- Chunks normais de content ---
-            if (hasContent) {
-              delete delta.reasoning_content;
-              res.write(`data: ${JSON.stringify(data)}\n\n`);
-              continue;
-            }
-
-            // --- Qualquer outro chunk (finish_reason, usage, etc.) ---
-            delete delta.reasoning_content;
             res.write(`data: ${JSON.stringify(data)}\n\n`);
-
           } catch (err) {
             console.error('Chunk parse error:', err.message);
           }
@@ -384,25 +350,6 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
-        // Se o stream terminou mas a tag <think> nunca foi fechada
-        // (modelo mandou só reasoning sem content), fecha aqui
-        if (reasoningBuffer.length > 0 && !reasoningClosed) {
-          const closeChunk = {
-            id: `chatcmpl-${Date.now()}`,
-            object: 'chat.completion.chunk',
-            created: Math.floor(Date.now() / 1000),
-            model,
-            choices: [
-              {
-                index: 0,
-                delta: { content: '</think>' },
-                finish_reason: null
-              }
-            ]
-          };
-          res.write(`data: ${JSON.stringify(closeChunk)}\n\n`);
-        }
-
         if (!res.writableEnded) res.end();
       });
 
@@ -416,7 +363,6 @@ app.post('/v1/chat/completions', async (req, res) => {
     // ============================================================
 
     } else {
-      let fullReasoning = '';
       let fullContent = '';
       let finishReason = 'stop';
       let usageData = null;
@@ -437,10 +383,6 @@ app.post('/v1/chat/completions', async (req, res) => {
             const data = JSON.parse(line.slice(6));
             const delta = data.choices?.[0]?.delta;
 
-            if (delta?.reasoning_content) {
-              fullReasoning += delta.reasoning_content;
-            }
-
             if (delta?.content) {
               fullContent += delta.content;
             }
@@ -457,11 +399,6 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
-        // Monta o content final com thinking na frente se existir
-        const finalContent = fullReasoning.length > 0
-          ? `<think>${fullReasoning}</think>\n\n${fullContent}`
-          : fullContent;
-
         res.json({
           id: `chatcmpl-${Date.now()}`,
           object: 'chat.completion',
@@ -472,7 +409,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               index: 0,
               message: {
                 role: 'assistant',
-                content: finalContent
+                content: fullContent
               },
               finish_reason: finishReason
             }
@@ -509,8 +446,9 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
   }
 });
+
 // ============================================================
-// DIAGNÓSTICO - ver raw chunks da NVIDIA
+// DIAGNÓSTICO
 // ============================================================
 
 app.post('/v1/diagnose', async (req, res) => {
