@@ -1,5 +1,5 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy
-// THINKING ENABLED + JANITOR THINKING BOX FIX + FORMAT FIX
+// THINKING ENABLED + JANITOR THINKING BOX FIX + SMART FORMAT FIX
 
 const express = require('express');
 const cors = require('cors');
@@ -61,70 +61,43 @@ function modelSupportsThinking(modelName) {
 }
 
 // ============================================================
-// FORMAT FIX
+// SMART FORMAT FIX
 // ============================================================
 
 function improveFormatting(text) {
   if (!text) return text;
 
   return text
+    // remove espaços quebrados
+    .replace(/\r/g, '')
 
-    // ============================================
-    // Corrige palavras grudadas
-    // ============================================
+    // junta palavras quebradas
+    .replace(/([a-zA-Z])\n([a-zA-Z])/g, '$1 $2')
 
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    // limpa espaços duplicados
+    .replace(/[ \t]{2,}/g, ' ')
 
-    // ============================================
-    // Remove espaços antes/depois de quebras
-    // ============================================
-
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n[ \t]+/g, '\n')
-
-    // ============================================
-    // Remove múltiplas linhas vazias
-    // ============================================
-
+    // remove quebras absurdas
     .replace(/\n{3,}/g, '\n\n')
 
-    // ============================================
-    // Corrige markdown quebrado
-    // ============================================
+    // fala depois de ação
+    .replace(/\*\s*"\s*/g, '*\n\n"')
 
-    .replace(/\*\*\s+\*/g, '** *')
-    .replace(/\*\s+\*\*/g, '* **')
+    // ação depois de fala
+    .replace(/"\s*\*/g, '"\n\n*')
 
-    // ============================================
-    // Remove quebra entre ação e fala
-    // ============================================
+    // separa ações consecutivas
+    .replace(/\*\s*\*/g, '*\n\n*')
 
-    .replace(/\*\n+\*\*/g, '* **')
+    // remove quebra entre símbolo e texto
+    .replace(/\*\n+/g, '* ')
+    .replace(/\n+\*/g, '\n\n* ')
 
-    // ============================================
-    // Remove quebra entre fala e ação
-    // ============================================
+    // limpa múltiplos espaços
+    .replace(/ +/g, ' ')
 
-    .replace(/\*\*\n+\*/g, '** *')
-
-    // ============================================
-    // Corrige aspas separadas
-    // ============================================
-
-    .replace(/\*\*\s*"\s*/g, '** "')
-    .replace(/\s*"\s*\*\*/g, '" **')
-
-    // ============================================
-    // Corrige asteriscos separados
-    // ============================================
-
-    .replace(/\*\s+\*/g, '* *')
-
-    // ============================================
-    // Remove espaços duplicados
-    // ============================================
-
-    .replace(/ {2,}/g, ' ')
+    // limpa excesso final
+    .replace(/\n{3,}/g, '\n\n')
 
     .trim();
 }
@@ -220,6 +193,162 @@ function saveDebugEntry(rawBody) {
   }
 }
 
+function escapeHtml(text) {
+  return (text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ============================================================
+// DEBUG PAGE
+// ============================================================
+
+app.get('/debug', (req, res) => {
+  if (debugStore.length === 0) {
+    return res.send(`
+      <html>
+      <body style="font-family:monospace;padding:20px;background:#111;color:#0f0">
+        <h2>Debug - Nenhum request recebido ainda</h2>
+      </body>
+      </html>
+    `);
+  }
+
+  const entryIndex = Math.min(
+    parseInt(req.query.entry || '0'),
+    debugStore.length - 1
+  );
+
+  const entry = debugStore[entryIndex];
+
+  const messagesHTML = entry.messages
+    .map(
+      (m) => `
+    <div style="border:1px solid #333;margin:8px 0;padding:12px;border-radius:6px;background:#1a1a1a">
+
+      <div style="margin-bottom:8px">
+
+        <span style="
+          background:${
+            m.role === 'system'
+              ? '#4a3000'
+              : m.role === 'user'
+              ? '#003a4a'
+              : '#1a3a00'
+          };
+
+          padding:2px 8px;
+          border-radius:4px;
+          font-size:12px
+        ">
+          [${m.index}] ${m.role.toUpperCase()}
+        </span>
+
+        <span style="color:#888;font-size:12px;margin-left:10px">
+          ${m.char_length} chars · ~${m.estimated_tokens} tokens
+        </span>
+
+      </div>
+
+      <pre style="
+        white-space:pre-wrap;
+        word-break:break-word;
+        color:#ccc;
+        font-size:13px;
+        margin:0
+      ">${escapeHtml(m.content_preview)}</pre>
+
+    </div>
+  `
+    )
+    .join('');
+
+  res.send(`
+    <html>
+
+    <head>
+
+      <title>Proxy Debug</title>
+
+      <style>
+
+        body{
+          font-family:monospace;
+          padding:20px;
+          background:#111;
+          color:#eee
+        }
+
+        h2{
+          color:#0f0
+        }
+
+        .stat{
+          display:inline-block;
+          background:#222;
+          padding:6px 14px;
+          border-radius:6px;
+          margin:4px;
+          font-size:13px
+        }
+
+        .stat span{
+          color:#0f0;
+          font-weight:bold
+        }
+
+      </style>
+
+    </head>
+
+    <body>
+
+      <h2>Proxy Debug</h2>
+
+      <div class="stat">
+        Modelo:
+        <span>${entry.model_requested}</span>
+      </div>
+
+      <div class="stat">
+        Mapeado:
+        <span>${entry.model_mapped}</span>
+      </div>
+
+      <div class="stat">
+        Tokens:
+        <span>${entry.estimated_tokens.toLocaleString()}</span>
+      </div>
+
+      <div class="stat">
+        Stream:
+        <span>${entry.stream ? 'sim' : 'não'}</span>
+      </div>
+
+      <h3 style="color:#0af">
+        Mensagens (${entry.total_messages})
+      </h3>
+
+      ${messagesHTML}
+
+    </body>
+
+    </html>
+  `);
+});
+
+app.get('/debug/raw', (req, res) => {
+  if (debugStore.length === 0) {
+    return res.json({
+      message: 'Nenhum request recebido ainda.'
+    });
+  }
+
+  res.json(debugStore[0]);
+});
+
 // ============================================================
 // TOKEN LIMITER
 // ============================================================
@@ -300,10 +429,6 @@ app.post('/v1/chat/completions', async (req, res) => {
   const limitedMessages =
     limitMessagesByTokens(messages, 100000);
 
-  // ============================================================
-  // NIM REQUEST
-  // ============================================================
-
   const nimRequest = {
     model: nimModel,
 
@@ -327,7 +452,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       chat_template_kwargs: {
         thinking: true,
         enable_thinking: true,
-        clear_thinking: true
+        return_reasoning: true
       }
 
     };
@@ -411,22 +536,27 @@ app.post('/v1/chat/completions', async (req, res) => {
 
             if (delta?.content) {
 
-              // ============================================
-              // EXTRACT THINKING
-              // ============================================
-
               const extracted =
                 extractThinking(delta.content);
 
-              // envia thinking separado
               if (extracted.reasoning) {
+
+                delta.reasoning_content =
+                  extracted.reasoning;
+
                 delta.reasoning =
                   extracted.reasoning;
               }
 
-              // NÃO formatar streaming
               delta.content =
-                extracted.content;
+                improveFormatting(
+                  extracted.content
+                );
+            }
+
+            if (delta?.reasoning_content) {
+              delta.reasoning =
+                delta.reasoning_content;
             }
 
             res.write(
@@ -462,11 +592,11 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
       });
 
-    // ============================================================
-    // NORMAL MODE
-    // ============================================================
-
     } else {
+
+      // ============================================================
+      // NORMAL MODE
+      // ============================================================
 
       let fullContent = '';
       let globalReasoning = '';
@@ -514,7 +644,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               }
 
               fullContent +=
-                extracted.content;
+                extracted.content + ' ';
             }
 
             if (
@@ -557,6 +687,9 @@ app.post('/v1/chat/completions', async (req, res) => {
                 content: improveFormatting(
                   fullContent
                 ),
+
+                reasoning_content:
+                  globalReasoning.trim(),
 
                 reasoning:
                   globalReasoning.trim()
