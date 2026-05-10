@@ -1,5 +1,5 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy
-// THINKING ENABLED + JANITOR THINKING BOX FIX + FORMAT FIX
+// THINKING ENABLED + JANITOR RP FORMAT FIX
 
 const express = require('express');
 const cors = require('cors');
@@ -61,7 +61,7 @@ function modelSupportsThinking(modelName) {
 }
 
 // ============================================================
-// FORMAT FIX
+// FORMAT FIX FOR RP
 // ============================================================
 
 function improveFormatting(text) {
@@ -69,58 +69,25 @@ function improveFormatting(text) {
 
   return text
 
-    // normaliza CRLF
+    // normaliza
     .replace(/\r/g, '')
 
-    // remove espaços gigantes
+    // remove espaços absurdos
     .replace(/[ \t]{2,}/g, ' ')
 
-    // remove espaços em linhas vazias
-    .replace(/\n[ \t]+\n/g, '\n\n')
+    // quebra depois de ação RP
+    .replace(/\*(.*?)\*\s*(?=[A-Z"])/gs, '*$1*\n\n')
 
-    // adiciona quebra entre frases SOMENTE quando faz sentido
-    .replace(/([.!?]) ([A-Z])/g, '$1\n\n$2')
+    // quebra depois de fala
+    .replace(/"(.*?)"\s*(?=\*|[A-Z])/gs, '"$1"\n\n')
 
-    // diálogos
-    .replace(/"([^\n]{15,}?)" ([A-Z])/g, '"$1"\n\n$2')
+    // evita paredes de texto
+    .replace(/([.!?])\s+(?=[A-Z])/g, '$1\n\n')
 
-    // ações RP
-    .replace(/\*([^*]{20,}?)\* ([A-Z])/g, '*$1*\n\n$2')
-
-    // evita 3+ linhas
+    // remove excesso
     .replace(/\n{3,}/g, '\n\n')
 
     .trim();
-}
-
-// ============================================================
-// THINKING EXTRACTOR
-// ============================================================
-
-function extractThinking(text) {
-  if (!text) {
-    return {
-      content: '',
-      reasoning: ''
-    };
-  }
-
-  let reasoning = '';
-
-  const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
-
-  const cleanContent = text.replace(
-    thinkRegex,
-    (_, thinkContent) => {
-      reasoning += thinkContent.trim() + '\n';
-      return '';
-    }
-  );
-
-  return {
-    content: cleanContent.trim(),
-    reasoning: reasoning.trim()
-  };
 }
 
 // ============================================================
@@ -531,18 +498,10 @@ app.post('/v1/chat/completions', async (req, res) => {
 
             if (delta?.content) {
 
-              const extracted =
-                extractThinking(delta.content);
-
-              // thinking separado
-              if (extracted.reasoning) {
-                delta.reasoning_content =
-                  extracted.reasoning;
-              }
-
-              // NÃO formatar streaming
+              // mantém <think> intacto
+              // Janitor detecta sozinho
               delta.content =
-                extracted.content;
+                delta.content;
             }
 
             res.write(
@@ -585,7 +544,6 @@ app.post('/v1/chat/completions', async (req, res) => {
     } else {
 
       let fullContent = '';
-      let globalReasoning = '';
 
       let finishReason = 'stop';
       let usageData = null;
@@ -620,16 +578,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               data.choices?.[0]?.delta;
 
             if (delta?.content) {
-
-              const extracted =
-                extractThinking(delta.content);
-
-              if (extracted.reasoning) {
-                globalReasoning +=
-                  extracted.reasoning + '\n';
-              }
-
-              fullContent += extracted.content;
+              fullContent += delta.content;
             }
 
             if (
@@ -672,10 +621,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               message: {
                 role: 'assistant',
 
-                content: fullContent,
-
-                reasoning_content:
-                  globalReasoning.trim()
+                content: fullContent
               },
 
               finish_reason: finishReason
