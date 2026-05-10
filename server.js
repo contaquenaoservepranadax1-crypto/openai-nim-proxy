@@ -106,19 +106,44 @@ function escapeHtml(text) {
 
 // ============================================================
 // FIX PARAGRAPHS
+//
+// Estratégia:
+// 1. Colapsa todas as quebras existentes em espaço simples
+//    para partir de um estado limpo
+// 2. Reinsere \n\n apenas em transições reais de cena:
+//    quando um bloco de ação longo (terminado em . ! ? …)
+//    é seguido por outro bloco de ação que começa com
+//    maiúscula — indicando mudança de momento narrativo
+// 3. Diálogos curtos e ações curtas ficam no mesmo parágrafo
 // ============================================================
 
 function fixParagraphs(text) {
   if (!text) return text;
 
-  return text
-    .replace(/(\*)\s+(\*\*)/g, '$1\n\n$2')
-    .replace(/(\*)\s*(\*\*)/g, '$1\n\n$2')
-    .replace(/(\*\*[^*]+\*\*)\s*(\*[^*])/g, '$1\n\n$2')
-    .replace(/("\*\*)\s*(\*[^*])/g, '$1\n\n$2')
-    .replace(/([^*]\*)\s{2,}(\*[^*])/g, '$1\n\n$2')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  // Passo 1: colapsa quebras de linha em espaço simples
+  // para limpar o que o modelo inseriu errado
+  let result = text.replace(/\n+/g, ' ').trim();
+
+  // Passo 2: reinsere \n\n em transições reais de cena
+  // Padrão: fim de bloco itálico que termina com . ! ? ou …
+  // seguido de novo bloco itálico que começa com maiúscula
+  // Ex: *...vow.* *She reaches...* → quebra entre os dois
+  result = result.replace(
+    /(\*[^*]{60,}[.!?…]\*)\s*(\*[A-Z])/g,
+    '$1\n\n$2'
+  );
+
+  // Passo 3: também quebra quando bloco de ação longo
+  // é seguido de diálogo longo (mais de 40 chars)
+  result = result.replace(
+    /(\*[^*]{60,}[.!?…]\*)\s*(\*\*"[^"]{40,})/g,
+    '$1\n\n$2'
+  );
+
+  // Limpa espaços duplicados
+  result = result.replace(/ {2,}/g, ' ').trim();
+
+  return result;
 }
 
 // ============================================================
