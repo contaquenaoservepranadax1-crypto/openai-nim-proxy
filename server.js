@@ -509,6 +509,78 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
   }
 });
+// ============================================================
+// DIAGNÓSTICO - ver raw chunks da NVIDIA
+// ============================================================
+
+app.post('/v1/diagnose', async (req, res) => {
+  const nimModel = 'z-ai/glm-5.1';
+
+  const nimRequest = {
+    model: nimModel,
+    messages: [{ role: 'user', content: 'Olá, tudo bem?' }],
+    temperature: 1.0,
+    max_tokens: 500,
+    stream: true,
+    extra_body: {
+      chat_template_kwargs: {
+        thinking: true,
+        clear_thinking: true,
+        do_sample: true,
+        enable_thinking: true
+      }
+    }
+  };
+
+  const response = await axios.post(
+    `${NIM_API_BASE}/chat/completions`,
+    nimRequest,
+    {
+      headers: {
+        Authorization: `Bearer ${NIM_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      responseType: 'stream',
+      timeout: 60000
+    }
+  );
+
+  const chunks = [];
+  let sseBuffer = '';
+
+  response.data.on('data', (chunk) => {
+    sseBuffer += chunk.toString();
+    const lines = sseBuffer.split('\n');
+    sseBuffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      if (line.includes('[DONE]')) continue;
+      try {
+        const data = JSON.parse(line.slice(6));
+        const delta = data.choices?.[0]?.delta;
+        if (delta) {
+          chunks.push({
+            has_content: !!delta.content,
+            has_reasoning: !!delta.reasoning_content,
+            content_preview: (delta.content || '').slice(0, 80),
+            reasoning_preview: (delta.reasoning_content || '').slice(0, 80)
+          });
+        }
+      } catch {}
+    }
+  });
+
+  response.data.on('end', () => {
+    res.json({
+      total_chunks: chunks.length,
+      chunks_with_reasoning: chunks.filter(c => c.has_reasoning).length,
+      chunks_with_content: chunks.filter(c => c.has_content).length,
+      first_5_chunks: chunks.slice(0, 5),
+      last_5_chunks: chunks.slice(-5)
+    });
+  });
+});
 
 // ============================================================
 // FALLBACK
