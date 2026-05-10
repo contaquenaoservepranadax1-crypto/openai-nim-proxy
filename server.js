@@ -26,9 +26,11 @@ app.use((req, res, next) => {
 // ============================================================
 
 const NIM_API_BASE =
-  process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
+  process.env.NIM_API_BASE ||
+  'https://integrate.api.nvidia.com/v1';
 
-const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
+const NIM_API_KEY =
+  process.env.NVIDIA_SECOND_API_KEY;
 
 // ============================================================
 // MODEL MAPPING
@@ -43,7 +45,8 @@ const MODEL_MAPPING = {
   'claude-3-sonnet': 'openai/gpt-oss-20b',
 
   // thinking model
-  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
+  'gemini-pro':
+    'qwen/qwen3-next-80b-a3b-thinking'
 };
 
 // ============================================================
@@ -68,35 +71,63 @@ function improveFormatting(text) {
   if (!text) return text;
 
   return text
-    // remove espaços quebrados
+
+    // normaliza
     .replace(/\r/g, '')
 
-    // junta palavras quebradas
-    .replace(/([a-zA-Z])\n([a-zA-Z])/g, '$1 $2')
-
-    // limpa espaços duplicados
+    // remove espaços duplicados
     .replace(/[ \t]{2,}/g, ' ')
 
-    // remove quebras absurdas
+    // remove line breaks absurdos
     .replace(/\n{3,}/g, '\n\n')
 
-    // fala depois de ação
-    .replace(/\*\s*"\s*/g, '*\n\n"')
+    // =====================================================
+    // AÇÃO -> FALA
+    // *ação.* "fala"
+    // =====================================================
 
-    // ação depois de fala
+    .replace(/\*\s*"/g, '*\n\n"')
+
+    // =====================================================
+    // FALA -> AÇÃO
+    // "fala" *ação*
+    // =====================================================
+
     .replace(/"\s*\*/g, '"\n\n*')
 
-    // separa ações consecutivas
+    // =====================================================
+    // AÇÕES SEGUIDAS
+    // *ação**ação*
+    // =====================================================
+
     .replace(/\*\s*\*/g, '*\n\n*')
 
-    // remove quebra entre símbolo e texto
-    .replace(/\*\n+/g, '* ')
-    .replace(/\n+\*/g, '\n\n* ')
+    // =====================================================
+    // REMOVE ESPAÇOS BUGADOS
+    // =====================================================
 
-    // limpa múltiplos espaços
-    .replace(/ +/g, ' ')
+    .replace(/\* +/g, '*')
+    .replace(/ +\*/g, '*')
 
-    // limpa excesso final
+    .replace(/" +/g, '"')
+    .replace(/ +"/g, '"')
+
+    // =====================================================
+    // REMOVE QUEBRAS DESNECESSÁRIAS
+    // =====================================================
+
+    .replace(/\n +/g, '\n')
+
+    // =====================================================
+    // REMOVE ESPAÇOS DUPLOS
+    // =====================================================
+
+    .replace(/ {2,}/g, ' ')
+
+    // =====================================================
+    // LIMPEZA FINAL
+    // =====================================================
+
     .replace(/\n{3,}/g, '\n\n')
 
     .trim();
@@ -116,7 +147,8 @@ function extractThinking(text) {
 
   let reasoning = '';
 
-  const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
+  const thinkRegex =
+    /<think>([\s\S]*?)<\/think>/gi;
 
   const cleanContent = text.replace(
     thinkRegex,
@@ -163,7 +195,8 @@ function saveDebugEntry(rawBody) {
 
     estimated_tokens: messages.reduce(
       (sum, m) =>
-        sum + estimateTokens(JSON.stringify(m)),
+        sum +
+        estimateTokens(JSON.stringify(m)),
       0
     ),
 
@@ -171,11 +204,11 @@ function saveDebugEntry(rawBody) {
       index: i,
       role: m.role,
 
-      char_length: (m.content || '').length,
+      char_length:
+        (m.content || '').length,
 
-      estimated_tokens: estimateTokens(
-        JSON.stringify(m)
-      ),
+      estimated_tokens:
+        estimateTokens(JSON.stringify(m)),
 
       content_preview:
         (m.content || '').length > 600
@@ -188,7 +221,10 @@ function saveDebugEntry(rawBody) {
 
   debugStore.unshift(entry);
 
-  if (debugStore.length > MAX_DEBUG_ENTRIES) {
+  if (
+    debugStore.length >
+    MAX_DEBUG_ENTRIES
+  ) {
     debugStore.pop();
   }
 }
@@ -226,7 +262,13 @@ app.get('/debug', (req, res) => {
   const messagesHTML = entry.messages
     .map(
       (m) => `
-    <div style="border:1px solid #333;margin:8px 0;padding:12px;border-radius:6px;background:#1a1a1a">
+    <div style="
+      border:1px solid #333;
+      margin:8px 0;
+      padding:12px;
+      border-radius:6px;
+      background:#1a1a1a
+    ">
 
       <div style="margin-bottom:8px">
 
@@ -243,11 +285,17 @@ app.get('/debug', (req, res) => {
           border-radius:4px;
           font-size:12px
         ">
-          [${m.index}] ${m.role.toUpperCase()}
+          [${m.index}]
+          ${m.role.toUpperCase()}
         </span>
 
-        <span style="color:#888;font-size:12px;margin-left:10px">
-          ${m.char_length} chars · ~${m.estimated_tokens} tokens
+        <span style="
+          color:#888;
+          font-size:12px;
+          margin-left:10px
+        ">
+          ${m.char_length} chars ·
+          ~${m.estimated_tokens} tokens
         </span>
 
       </div>
@@ -258,7 +306,9 @@ app.get('/debug', (req, res) => {
         color:#ccc;
         font-size:13px;
         margin:0
-      ">${escapeHtml(m.content_preview)}</pre>
+      ">
+${escapeHtml(m.content_preview)}
+      </pre>
 
     </div>
   `
@@ -319,12 +369,16 @@ app.get('/debug', (req, res) => {
 
       <div class="stat">
         Tokens:
-        <span>${entry.estimated_tokens.toLocaleString()}</span>
+        <span>
+          ${entry.estimated_tokens.toLocaleString()}
+        </span>
       </div>
 
       <div class="stat">
         Stream:
-        <span>${entry.stream ? 'sim' : 'não'}</span>
+        <span>
+          ${entry.stream ? 'sim' : 'não'}
+        </span>
       </div>
 
       <h3 style="color:#0af">
@@ -342,7 +396,8 @@ app.get('/debug', (req, res) => {
 app.get('/debug/raw', (req, res) => {
   if (debugStore.length === 0) {
     return res.json({
-      message: 'Nenhum request recebido ainda.'
+      message:
+        'Nenhum request recebido ainda.'
     });
   }
 
@@ -357,7 +412,10 @@ function limitMessagesByTokens(
   messages,
   maxTokens = 100000
 ) {
-  if (!messages || messages.length === 0) {
+  if (
+    !messages ||
+    messages.length === 0
+  ) {
     return messages;
   }
 
@@ -365,13 +423,19 @@ function limitMessagesByTokens(
 
   const keptMessages = [];
 
-  for (let i = messages.length - 1; i >= 0; i--) {
-
+  for (
+    let i = messages.length - 1;
+    i >= 0;
+    i--
+  ) {
     const tokens = estimateTokens(
       JSON.stringify(messages[i])
     );
 
-    if (totalTokens + tokens <= maxTokens) {
+    if (
+      totalTokens + tokens <=
+      maxTokens
+    ) {
       keptMessages.unshift(messages[i]);
       totalTokens += tokens;
     } else {
@@ -397,7 +461,9 @@ app.get('/v1/models', (_, res) => {
   res.json({
     object: 'list',
 
-    data: Object.keys(MODEL_MAPPING).map((m) => ({
+    data: Object.keys(
+      MODEL_MAPPING
+    ).map((m) => ({
       id: m,
       object: 'model',
       created: Date.now(),
@@ -410,353 +476,443 @@ app.get('/v1/models', (_, res) => {
 // CHAT COMPLETIONS
 // ============================================================
 
-app.post('/v1/chat/completions', async (req, res) => {
+app.post(
+  '/v1/chat/completions',
+  async (req, res) => {
 
-  const {
-    model,
-    messages,
-    temperature,
-    max_tokens,
-    stream
-  } = req.body;
+    const {
+      model,
+      messages,
+      temperature,
+      max_tokens,
+      stream
+    } = req.body;
 
-  saveDebugEntry(req.body);
+    saveDebugEntry(req.body);
 
-  const nimModel =
-    MODEL_MAPPING[model] ||
-    'meta/llama-3.1-70b-instruct';
+    const nimModel =
+      MODEL_MAPPING[model] ||
+      'meta/llama-3.1-70b-instruct';
 
-  const limitedMessages =
-    limitMessagesByTokens(messages, 100000);
+    const limitedMessages =
+      limitMessagesByTokens(
+        messages,
+        100000
+      );
 
-  const nimRequest = {
-    model: nimModel,
+    const nimRequest = {
+      model: nimModel,
 
-    messages: limitedMessages,
+      messages: limitedMessages,
 
-    temperature: temperature ?? 1.0,
+      temperature:
+        temperature ?? 1.0,
 
-    max_tokens: max_tokens ?? 16384,
+      max_tokens:
+        max_tokens ?? 16384,
 
-    stream: true
-  };
-
-  // ============================================================
-  // ENABLE THINKING
-  // ============================================================
-
-  if (modelSupportsThinking(nimModel)) {
-
-    nimRequest.extra_body = {
-
-      chat_template_kwargs: {
-        thinking: true,
-        enable_thinking: true,
-        return_reasoning: true
-      }
-
+      stream: true
     };
-  }
 
-  try {
+    // ========================================================
+    // ENABLE THINKING
+    // ========================================================
 
-    const response = await axios.post(
-      `${NIM_API_BASE}/chat/completions`,
-      nimRequest,
-      {
-        headers: {
-          Authorization: `Bearer ${NIM_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-
-        responseType: 'stream',
-
-        timeout: 600000
-      }
-    );
-
-    // ============================================================
-    // STREAM MODE
-    // ============================================================
-
-    if (stream) {
-
-      res.setHeader(
-        'Content-Type',
-        'text/event-stream'
-      );
-
-      res.setHeader(
-        'Cache-Control',
-        'no-cache'
-      );
-
-      res.setHeader(
-        'Connection',
-        'keep-alive'
-      );
-
-      res.setHeader(
-        'X-Accel-Buffering',
-        'no'
-      );
-
-      let sseBuffer = '';
-
-      response.data.on('data', (chunk) => {
-
-        sseBuffer += chunk.toString();
-
-        const lines = sseBuffer.split('\n');
-
-        sseBuffer = lines.pop() || '';
-
-        for (const line of lines) {
-
-          if (line.startsWith(':')) continue;
-
-          if (!line.startsWith('data: '))
-            continue;
-
-          if (line.includes('[DONE]')) {
-
-            res.write('data: [DONE]\n\n');
-
-            continue;
-          }
-
-          try {
-
-            const data = JSON.parse(
-              line.slice(6)
-            );
-
-            const delta =
-              data.choices?.[0]?.delta;
-
-            if (delta?.content) {
-
-              const extracted =
-                extractThinking(delta.content);
-
-              if (extracted.reasoning) {
-
-                delta.reasoning_content =
-                  extracted.reasoning;
-
-                delta.reasoning =
-                  extracted.reasoning;
-              }
-
-              delta.content =
-                improveFormatting(
-                  extracted.content
-                );
-            }
-
-            if (delta?.reasoning_content) {
-              delta.reasoning =
-                delta.reasoning_content;
-            }
-
-            res.write(
-              `data: ${JSON.stringify(data)}\n\n`
-            );
-
-          } catch (err) {
-
-            console.error(
-              'Chunk parse error:',
-              err.message
-            );
-          }
+    if (
+      modelSupportsThinking(nimModel)
+    ) {
+      nimRequest.extra_body = {
+        chat_template_kwargs: {
+          thinking: true,
+          enable_thinking: true,
+          return_reasoning: true
         }
-      });
+      };
+    }
 
-      response.data.on('end', () => {
+    try {
 
-        if (!res.writableEnded) {
-          res.end();
-        }
-      });
+      const response =
+        await axios.post(
+          `${NIM_API_BASE}/chat/completions`,
+          nimRequest,
+          {
+            headers: {
+              Authorization:
+                `Bearer ${NIM_API_KEY}`,
 
-      response.data.on('error', (err) => {
+              'Content-Type':
+                'application/json'
+            },
 
-        console.error(
-          'Stream error:',
-          err.message
+            responseType: 'stream',
+
+            timeout: 600000
+          }
         );
 
-        if (!res.writableEnded) {
-          res.end();
-        }
-      });
+      // ======================================================
+      // STREAM MODE
+      // ======================================================
 
-    } else {
+      if (stream) {
 
-      // ============================================================
-      // NORMAL MODE
-      // ============================================================
+        res.setHeader(
+          'Content-Type',
+          'text/event-stream'
+        );
 
-      let fullContent = '';
-      let globalReasoning = '';
+        res.setHeader(
+          'Cache-Control',
+          'no-cache'
+        );
 
-      let finishReason = 'stop';
-      let usageData = null;
+        res.setHeader(
+          'Connection',
+          'keep-alive'
+        );
 
-      let sseBuffer = '';
+        res.setHeader(
+          'X-Accel-Buffering',
+          'no'
+        );
 
-      response.data.on('data', (chunk) => {
+        let sseBuffer = '';
 
-        sseBuffer += chunk.toString();
+        response.data.on(
+          'data',
+          (chunk) => {
 
-        const lines = sseBuffer.split('\n');
+            sseBuffer +=
+              chunk.toString();
 
-        sseBuffer = lines.pop() || '';
+            const lines =
+              sseBuffer.split('\n');
 
-        for (const line of lines) {
+            sseBuffer =
+              lines.pop() || '';
 
-          if (line.startsWith(':')) continue;
+            for (const line of lines) {
 
-          if (!line.startsWith('data: '))
-            continue;
+              if (
+                line.startsWith(':')
+              ) continue;
 
-          if (line.includes('[DONE]'))
-            continue;
+              if (
+                !line.startsWith(
+                  'data: '
+                )
+              ) continue;
 
-          try {
+              if (
+                line.includes('[DONE]')
+              ) {
 
-            const data = JSON.parse(
-              line.slice(6)
-            );
+                res.write(
+                  'data: [DONE]\n\n'
+                );
 
-            const delta =
-              data.choices?.[0]?.delta;
-
-            if (delta?.content) {
-
-              const extracted =
-                extractThinking(delta.content);
-
-              if (extracted.reasoning) {
-                globalReasoning +=
-                  extracted.reasoning + '\n';
+                continue;
               }
 
-              fullContent +=
-                extracted.content + ' ';
+              try {
+
+                const data =
+                  JSON.parse(
+                    line.slice(6)
+                  );
+
+                const delta =
+                  data.choices?.[0]
+                    ?.delta;
+
+                if (
+                  delta?.content
+                ) {
+
+                  const extracted =
+                    extractThinking(
+                      delta.content
+                    );
+
+                  if (
+                    extracted.reasoning
+                  ) {
+
+                    delta.reasoning_content =
+                      extracted.reasoning;
+
+                    delta.reasoning =
+                      extracted.reasoning;
+                  }
+
+                  delta.content =
+                    improveFormatting(
+                      extracted.content
+                    );
+                }
+
+                if (
+                  delta?.reasoning_content
+                ) {
+                  delta.reasoning =
+                    delta.reasoning_content;
+                }
+
+                res.write(
+                  `data: ${JSON.stringify(data)}\n\n`
+                );
+
+              } catch (err) {
+
+                console.error(
+                  'Chunk parse error:',
+                  err.message
+                );
+              }
             }
+          }
+        );
+
+        response.data.on(
+          'end',
+          () => {
 
             if (
-              data.choices?.[0]?.finish_reason
+              !res.writableEnded
             ) {
-              finishReason =
-                data.choices[0]
-                  .finish_reason;
+              res.end();
             }
-
-            if (data.usage) {
-              usageData = data.usage;
-            }
-
-          } catch {}
-        }
-      });
-
-      response.data.on('end', () => {
-
-        res.json({
-
-          id: `chatcmpl-${Date.now()}`,
-
-          object: 'chat.completion',
-
-          created: Math.floor(
-            Date.now() / 1000
-          ),
-
-          model,
-
-          choices: [
-            {
-              index: 0,
-
-              message: {
-                role: 'assistant',
-
-                content: improveFormatting(
-                  fullContent
-                ),
-
-                reasoning_content:
-                  globalReasoning.trim(),
-
-                reasoning:
-                  globalReasoning.trim()
-              },
-
-              finish_reason: finishReason
-            }
-          ],
-
-          usage:
-            usageData ?? {
-              prompt_tokens: 0,
-              completion_tokens: 0,
-              total_tokens: 0
-            }
-        });
-      });
-
-      response.data.on('error', (err) => {
-
-        console.error(
-          'Error (non-stream):',
-          err.message
+          }
         );
 
-        if (!res.headersSent) {
+        response.data.on(
+          'error',
+          (err) => {
 
-          res.status(500).json({
-            error: {
-              message: err.message
+            console.error(
+              'Stream error:',
+              err.message
+            );
+
+            if (
+              !res.writableEnded
+            ) {
+              res.end();
             }
-          });
-        }
-      });
-    }
+          }
+        );
 
-  } catch (error) {
+      } else {
 
-    console.error(
-      'Proxy error:',
-      error.response?.data ||
-      error.message
-    );
+        // ====================================================
+        // NORMAL MODE
+        // ====================================================
 
-    if (!res.headersSent) {
+        let fullContent = '';
+        let globalReasoning = '';
 
-      res.status(
-        error.response?.status || 500
-      ).json({
-        error: {
-          message:
-            error.message ||
-            'Internal server error',
+        let finishReason = 'stop';
+        let usageData = null;
 
-          type: 'proxy_error',
+        let sseBuffer = '';
 
-          code:
-            error.response?.status || 500
-        }
-      });
+        response.data.on(
+          'data',
+          (chunk) => {
 
-    } else if (!res.writableEnded) {
+            sseBuffer +=
+              chunk.toString();
 
-      res.end();
+            const lines =
+              sseBuffer.split('\n');
+
+            sseBuffer =
+              lines.pop() || '';
+
+            for (const line of lines) {
+
+              if (
+                line.startsWith(':')
+              ) continue;
+
+              if (
+                !line.startsWith(
+                  'data: '
+                )
+              ) continue;
+
+              if (
+                line.includes('[DONE]')
+              ) continue;
+
+              try {
+
+                const data =
+                  JSON.parse(
+                    line.slice(6)
+                  );
+
+                const delta =
+                  data.choices?.[0]
+                    ?.delta;
+
+                if (
+                  delta?.content
+                ) {
+
+                  const extracted =
+                    extractThinking(
+                      delta.content
+                    );
+
+                  if (
+                    extracted.reasoning
+                  ) {
+                    globalReasoning +=
+                      extracted.reasoning +
+                      '\n';
+                  }
+
+                  fullContent +=
+                    extracted.content +
+                    ' ';
+                }
+
+                if (
+                  data.choices?.[0]
+                    ?.finish_reason
+                ) {
+                  finishReason =
+                    data.choices[0]
+                      .finish_reason;
+                }
+
+                if (data.usage) {
+                  usageData =
+                    data.usage;
+                }
+
+              } catch {}
+            }
+          }
+        );
+
+        response.data.on(
+          'end',
+          () => {
+
+            res.json({
+
+              id:
+                `chatcmpl-${Date.now()}`,
+
+              object:
+                'chat.completion',
+
+              created: Math.floor(
+                Date.now() / 1000
+              ),
+
+              model,
+
+              choices: [
+                {
+                  index: 0,
+
+                  message: {
+                    role: 'assistant',
+
+                    content:
+                      improveFormatting(
+                        fullContent
+                      ),
+
+                    reasoning_content:
+                      globalReasoning.trim(),
+
+                    reasoning:
+                      globalReasoning.trim()
+                  },
+
+                  finish_reason:
+                    finishReason
+                }
+              ],
+
+              usage:
+                usageData ?? {
+                  prompt_tokens: 0,
+                  completion_tokens: 0,
+                  total_tokens: 0
+                }
+            });
+          }
+        );
+
+        response.data.on(
+          'error',
+          (err) => {
+
+            console.error(
+              'Error (non-stream):',
+              err.message
+            );
+
+            if (
+              !res.headersSent
+            ) {
+
+              res
+                .status(500)
+                .json({
+                  error: {
+                    message:
+                      err.message
+                  }
+                });
+            }
+          }
+        );
+      }
+
+    } catch (error) {
+
+      console.error(
+        'Proxy error:',
+        error.response?.data ||
+        error.message
+      );
+
+      if (!res.headersSent) {
+
+        res.status(
+          error.response?.status ||
+          500
+        ).json({
+          error: {
+            message:
+              error.message ||
+              'Internal server error',
+
+            type:
+              'proxy_error',
+
+            code:
+              error.response
+                ?.status || 500
+          }
+        });
+
+      } else if (
+        !res.writableEnded
+      ) {
+
+        res.end();
+      }
     }
   }
-});
+);
 
 // ============================================================
 // FALLBACK
@@ -766,7 +922,9 @@ app.all('*', (req, res) => {
 
   res.status(404).json({
     error: {
-      message: `Endpoint ${req.path} not found`,
+      message:
+        `Endpoint ${req.path} not found`,
+
       code: 404
     }
   });
@@ -776,35 +934,42 @@ app.all('*', (req, res) => {
 // START SERVER
 // ============================================================
 
-const server = app.listen(PORT, () => {
+const server = app.listen(
+  PORT,
+  () => {
 
-  console.log(
-    `✅ Proxy rodando na porta ${PORT}`
-  );
+    console.log(
+      `✅ Proxy rodando na porta ${PORT}`
+    );
 
-  const RENDER_URL =
-    process.env.RENDER_EXTERNAL_URL;
+    const RENDER_URL =
+      process.env.RENDER_EXTERNAL_URL;
 
-  if (RENDER_URL) {
+    if (RENDER_URL) {
 
-    setInterval(() => {
+      setInterval(() => {
 
-      axios
-        .get(`${RENDER_URL}/health`)
-
-        .then(() =>
-          console.log('🏓 Keep-alive OK')
-        )
-
-        .catch((err) =>
-          console.warn(
-            `⚠️ Keep-alive falhou: ${err.message}`
+        axios
+          .get(
+            `${RENDER_URL}/health`
           )
-        );
 
-    }, 10 * 60 * 1000);
+          .then(() =>
+            console.log(
+              '🏓 Keep-alive OK'
+            )
+          )
+
+          .catch((err) =>
+            console.warn(
+              `⚠️ Keep-alive falhou: ${err.message}`
+            )
+          );
+
+      }, 10 * 60 * 1000);
+    }
   }
-});
+);
 
 server.setTimeout(0);
 
