@@ -1,5 +1,5 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy
-// THINKING ENABLED + JANITOR FORMAT FIX FINAL
+// THINKING ENABLED + JANITOR THINKING BOX FIX + FORMAT FIX
 
 const express = require('express');
 const cors = require('cors');
@@ -26,11 +26,9 @@ app.use((req, res, next) => {
 // ============================================================
 
 const NIM_API_BASE =
-  process.env.NIM_API_BASE ||
-  'https://integrate.api.nvidia.com/v1';
+  process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 
-const NIM_API_KEY =
-  process.env.NVIDIA_SECOND_API_KEY;
+const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
 // ============================================================
 // MODEL MAPPING
@@ -45,8 +43,7 @@ const MODEL_MAPPING = {
   'claude-3-sonnet': 'openai/gpt-oss-20b',
 
   // thinking model
-  'gemini-pro':
-    'qwen/qwen3-next-80b-a3b-thinking'
+  'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
 };
 
 // ============================================================
@@ -68,71 +65,68 @@ function modelSupportsThinking(modelName) {
 // ============================================================
 
 function improveFormatting(text) {
-  if (!text) return '';
+  if (!text) return text;
 
-  let formatted = text;
+  return text
 
-  // remove carriage return
-  formatted = formatted.replace(/\r/g, '');
+    // ============================================
+    // Corrige palavras grudadas
+    // ============================================
 
-  // junta palavras grudadas
-  formatted = formatted.replace(
-    /([a-z,])([A-Z])/g,
-    '$1 $2'
-  );
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
 
-  formatted = formatted.replace(
-    /([a-z])([A-Z][a-z])/g,
-    '$1 $2'
-  );
+    // ============================================
+    // Remove espaços antes/depois de quebras
+    // ============================================
 
-  // remove espaços duplicados
-  formatted = formatted.replace(
-    /[ \t]{2,}/g,
-    ' '
-  );
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
 
-  // remove line breaks absurdos
-  formatted = formatted.replace(
-    /\n{3,}/g,
-    '\n\n'
-  );
+    // ============================================
+    // Remove múltiplas linhas vazias
+    // ============================================
 
-  // ============================================================
-  // FORMATAÇÃO RP
-  // ============================================================
+    .replace(/\n{3,}/g, '\n\n')
 
-  // ação -> fala
-  formatted = formatted.replace(
-    /\*\s*"/g,
-    '*\n\n"'
-  );
+    // ============================================
+    // Corrige markdown quebrado
+    // ============================================
 
-  // fala -> ação
-  formatted = formatted.replace(
-    /"\s*\*/g,
-    '"\n\n*'
-  );
+    .replace(/\*\*\s+\*/g, '** *')
+    .replace(/\*\s+\*\*/g, '* **')
 
-  // ação -> ação
-  formatted = formatted.replace(
-    /\*\s*\*/g,
-    '*\n\n*'
-  );
+    // ============================================
+    // Remove quebra entre ação e fala
+    // ============================================
 
-  // fala -> fala
-  formatted = formatted.replace(
-    /"\s*"/g,
-    '"\n\n"'
-  );
+    .replace(/\*\n+\*\*/g, '* **')
 
-  // remove linhas gigantes
-  formatted = formatted.replace(
-    /\n{3,}/g,
-    '\n\n'
-  );
+    // ============================================
+    // Remove quebra entre fala e ação
+    // ============================================
 
-  return formatted.trim();
+    .replace(/\*\*\n+\*/g, '** *')
+
+    // ============================================
+    // Corrige aspas separadas
+    // ============================================
+
+    .replace(/\*\*\s*"\s*/g, '** "')
+    .replace(/\s*"\s*\*\*/g, '" **')
+
+    // ============================================
+    // Corrige asteriscos separados
+    // ============================================
+
+    .replace(/\*\s+\*/g, '* *')
+
+    // ============================================
+    // Remove espaços duplicados
+    // ============================================
+
+    .replace(/ {2,}/g, ' ')
+
+    .trim();
 }
 
 // ============================================================
@@ -149,8 +143,7 @@ function extractThinking(text) {
 
   let reasoning = '';
 
-  const thinkRegex =
-    /<think>([\s\S]*?)<\/think>/gi;
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
 
   const cleanContent = text.replace(
     thinkRegex,
@@ -307,6 +300,10 @@ app.post('/v1/chat/completions', async (req, res) => {
   const limitedMessages =
     limitMessagesByTokens(messages, 100000);
 
+  // ============================================================
+  // NIM REQUEST
+  // ============================================================
+
   const nimRequest = {
     model: nimModel,
 
@@ -326,9 +323,13 @@ app.post('/v1/chat/completions', async (req, res) => {
   if (modelSupportsThinking(nimModel)) {
 
     nimRequest.extra_body = {
+
       chat_template_kwargs: {
-        thinking: true
+        thinking: true,
+        enable_thinking: true,
+        clear_thinking: true
       }
+
     };
   }
 
@@ -410,23 +411,20 @@ app.post('/v1/chat/completions', async (req, res) => {
 
             if (delta?.content) {
 
+              // ============================================
+              // EXTRACT THINKING
+              // ============================================
+
               const extracted =
                 extractThinking(delta.content);
 
-              // thinking box
+              // envia thinking separado
               if (extracted.reasoning) {
-
-                delta.reasoning_content =
-                  extracted.reasoning;
-
                 delta.reasoning =
-                  extracted.reasoning;
-
-                delta.thinking =
                   extracted.reasoning;
               }
 
-              // NÃO formatar stream
+              // NÃO formatar streaming
               delta.content =
                 extracted.content;
             }
@@ -511,7 +509,6 @@ app.post('/v1/chat/completions', async (req, res) => {
                 extractThinking(delta.content);
 
               if (extracted.reasoning) {
-
                 globalReasoning +=
                   extracted.reasoning + '\n';
               }
@@ -523,7 +520,6 @@ app.post('/v1/chat/completions', async (req, res) => {
             if (
               data.choices?.[0]?.finish_reason
             ) {
-
               finishReason =
                 data.choices[0]
                   .finish_reason;
@@ -562,13 +558,7 @@ app.post('/v1/chat/completions', async (req, res) => {
                   fullContent
                 ),
 
-                reasoning_content:
-                  globalReasoning.trim(),
-
                 reasoning:
-                  globalReasoning.trim(),
-
-                thinking:
                   globalReasoning.trim()
               },
 
