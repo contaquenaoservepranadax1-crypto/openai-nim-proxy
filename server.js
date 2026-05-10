@@ -40,8 +40,6 @@ const MODEL_MAPPING = {
   'gpt-4o': 'deepseek-ai/deepseek-v4-pro',
   'claude-3-opus': 'openai/gpt-oss-120b',
   'claude-3-sonnet': 'openai/gpt-oss-20b',
-
-  // Modelo focado em thinking
   'gemini-pro': 'qwen/qwen3-next-80b-a3b-thinking'
 };
 
@@ -215,6 +213,14 @@ function limitMessagesByTokens(messages, maxTokens = 100000) {
 }
 
 // ============================================================
+// HELPER: detecta se o modelo é GLM 5.1
+// ============================================================
+
+function isGLM51(nimModel) {
+  return nimModel === 'z-ai/glm-5.1';
+}
+
+// ============================================================
 // ROUTES
 // ============================================================
 
@@ -235,14 +241,6 @@ app.get('/v1/models', (_, res) => {
 });
 
 // ============================================================
-// HELPER: detecta se o modelo é GLM 5.1
-// ============================================================
-
-function isGLM51(nimModel) {
-  return nimModel === 'z-ai/glm-5.1';
-}
-
-// ============================================================
 // CHAT COMPLETIONS
 // ============================================================
 
@@ -256,12 +254,6 @@ app.post('/v1/chat/completions', async (req, res) => {
 
   const limitedMessages = limitMessagesByTokens(messages, 100000);
 
-  // ============================================================
-  // chat_template_kwargs adaptado por modelo
-  // GLM 5.1 precisa de thinking + clear_thinking + do_sample + enable_thinking
-  // Outros modelos: apenas thinking: true
-  // ============================================================
-
   const chatTemplateKwargs = isGLM51(nimModel)
     ? {
         thinking: true,
@@ -273,18 +265,12 @@ app.post('/v1/chat/completions', async (req, res) => {
         thinking: true
       };
 
-  // ============================================================
-  // NIM REQUEST
-  // ============================================================
-
   const nimRequest = {
     model: nimModel,
     messages: limitedMessages,
     temperature: temperature ?? 1.0,
     max_tokens: max_tokens ?? 16384,
     stream: true,
-
-    // THINKING ENABLED
     extra_body: {
       chat_template_kwargs: chatTemplateKwargs
     }
@@ -316,6 +302,11 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       let sseBuffer = '';
 
+      // Estado da acumulação do reasoning
+      let reasoningBuffer = '';
+      let reasoningClosed = false;
+      let firstContentSent = false;
+
       response.data.on('data', (chunk) => {
         sseBuffer += chunk.toString();
 
@@ -333,7 +324,59 @@ app.post('/v1/chat/completions', async (req, res) => {
 
           try {
             const data = JSON.parse(line.slice(6));
+            const delta = data.choices?.[0]?.delta;
+
+            if (!delta) {
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+              continue;
+            }
+
+            const hasReasoning = typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0;
+            const hasContent = typeof delta.content === 'string' && delta.content.length > 0;
+
+            // --- Chunk só com reasoning_content ---
+            if (hasReasoning && !hasContent) {
+              reasoningBuffer += delta.reasoning_content;
+
+              // Manda o reasoning acumulado como <think> ainda aberto
+              // Substitui delta para mandar só o pedaço novo como texto dentro da tag
+              if (reasoningBuffer === delta.reasoning_content) {
+                // Primeiro chunk de reasoning: abre a tag
+                delta.content = `<think>${delta.reasoning_content}`;
+              } else {
+                // Chunks seguintes: só o texto novo (tag já foi aberta)
+                delta.content = delta.reasoning_content;
+              }
+              delete delta.reasoning_content;
+
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+              continue;
+            }
+
+            // --- Primeiro chunk com content real (reasoning acabou) ---
+            if (hasContent && !reasoningClosed && reasoningBuffer.length > 0) {
+              reasoningClosed = true;
+              firstContentSent = true;
+
+              // Fecha a tag <think> e começa o content normal
+              delta.content = `</think>\n\n${delta.content}`;
+              delete delta.reasoning_content;
+
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+              continue;
+            }
+
+            // --- Chunks normais de content ---
+            if (hasContent) {
+              delete delta.reasoning_content;
+              res.write(`data: ${JSON.stringify(data)}\n\n`);
+              continue;
+            }
+
+            // --- Qualquer outro chunk (finish_reason, usage, etc.) ---
+            delete delta.reasoning_content;
             res.write(`data: ${JSON.stringify(data)}\n\n`);
+
           } catch (err) {
             console.error('Chunk parse error:', err.message);
           }
@@ -341,6 +384,25 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
+        // Se o stream terminou mas a tag <think> nunca foi fechada
+        // (modelo mandou só reasoning sem content), fecha aqui
+        if (reasoningBuffer.length > 0 && !reasoningClosed) {
+          const closeChunk = {
+            id: `chatcmpl-${Date.now()}`,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model,
+            choices: [
+              {
+                index: 0,
+                delta: { content: '</think>' },
+                finish_reason: null
+              }
+            ]
+          };
+          res.write(`data: ${JSON.stringify(closeChunk)}\n\n`);
+        }
+
         if (!res.writableEnded) res.end();
       });
 
@@ -354,6 +416,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     // ============================================================
 
     } else {
+      let fullReasoning = '';
       let fullContent = '';
       let finishReason = 'stop';
       let usageData = null;
@@ -374,6 +437,10 @@ app.post('/v1/chat/completions', async (req, res) => {
             const data = JSON.parse(line.slice(6));
             const delta = data.choices?.[0]?.delta;
 
+            if (delta?.reasoning_content) {
+              fullReasoning += delta.reasoning_content;
+            }
+
             if (delta?.content) {
               fullContent += delta.content;
             }
@@ -390,6 +457,11 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
+        // Monta o content final com thinking na frente se existir
+        const finalContent = fullReasoning.length > 0
+          ? `<think>${fullReasoning}</think>\n\n${fullContent}`
+          : fullContent;
+
         res.json({
           id: `chatcmpl-${Date.now()}`,
           object: 'chat.completion',
@@ -400,7 +472,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               index: 0,
               message: {
                 role: 'assistant',
-                content: fullContent
+                content: finalContent
               },
               finish_reason: finishReason
             }
