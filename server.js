@@ -1,5 +1,5 @@
 // server.js - OpenAI to NVIDIA NIM API Proxy
-// THINKING ENABLED + JANITOR RP FORMAT FIX
+// THINKING ENABLED + JANITOR THINKING BOX FIX + FORMAT FIX
 
 const express = require('express');
 const cors = require('cors');
@@ -61,33 +61,82 @@ function modelSupportsThinking(modelName) {
 }
 
 // ============================================================
-// FORMAT FIX FOR RP
+// FORMAT FIX
 // ============================================================
 
 function improveFormatting(text) {
   if (!text) return text;
 
   return text
-
-    // normaliza
+    // remove espaços quebrados
     .replace(/\r/g, '')
 
-    // remove espaços absurdos
-    .replace(/[ \t]{2,}/g, ' ')
+    // junta bold quebrado
+    .replace(/\*\*\s*\n\s*/g, '**')
 
-    // quebra depois de ação RP
-    .replace(/\*(.*?)\*\s*(?=[A-Z"])/gs, '*$1*\n\n')
+    // corrige fala quebrada
+    .replace(/"\s*\n\s*"/g, '"')
 
-    // quebra depois de fala
-    .replace(/"(.*?)"\s*(?=\*|[A-Z])/gs, '"$1"\n\n')
+    // remove linhas vazias absurdas
+    .replace(/\n{3,}/g, '\n\n')
 
-    // evita paredes de texto
-    .replace(/([.!?])\s+(?=[A-Z])/g, '$1\n\n')
+    // ========================================================
+    // FORMATA AÇÕES
+    // ========================================================
 
-    // remove excesso
+    // quebra antes de ação
+    .replace(/([^\n])(\*[^\*])/g, '$1\n\n$2')
+
+    // quebra depois de ação
+    .replace(/(\*[^*]+\*)([^\n*"])/g, '$1\n\n$2')
+
+    // ========================================================
+    // FORMATA FALAS
+    // ========================================================
+
+    // quebra antes de diálogo
+    .replace(/([^\n])(")/g, '$1\n\n$2')
+
+    // quebra depois de diálogo
+    .replace(/(")([A-Z*])/g, '$1\n\n$2')
+
+    // remove espaços feios
+    .replace(/[ \t]+\n/g, '\n')
+
+    // limpa excesso final
     .replace(/\n{3,}/g, '\n\n')
 
     .trim();
+}
+
+// ============================================================
+// THINKING EXTRACTOR
+// ============================================================
+
+function extractThinking(text) {
+  if (!text) {
+    return {
+      content: '',
+      reasoning: ''
+    };
+  }
+
+  let reasoning = '';
+
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
+
+  const cleanContent = text.replace(
+    thinkRegex,
+    (_, thinkContent) => {
+      reasoning += thinkContent.trim() + '\n';
+      return '';
+    }
+  );
+
+  return {
+    content: cleanContent.trim(),
+    reasoning: reasoning.trim()
+  };
 }
 
 // ============================================================
@@ -498,10 +547,22 @@ app.post('/v1/chat/completions', async (req, res) => {
 
             if (delta?.content) {
 
-              // mantém <think> intacto
-              // Janitor detecta sozinho
+              const extracted =
+                extractThinking(delta.content);
+
+              // THINKING BOX
+              if (extracted.reasoning) {
+
+                delta.reasoning_content =
+                  extracted.reasoning;
+
+                delta.reasoning =
+                  extracted.reasoning;
+              }
+
+              // envia cru pro Janitor
               delta.content =
-                delta.content;
+                extracted.content;
             }
 
             res.write(
@@ -544,6 +605,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     } else {
 
       let fullContent = '';
+      let globalReasoning = '';
 
       let finishReason = 'stop';
       let usageData = null;
@@ -578,12 +640,25 @@ app.post('/v1/chat/completions', async (req, res) => {
               data.choices?.[0]?.delta;
 
             if (delta?.content) {
-              fullContent += delta.content;
+
+              const extracted =
+                extractThinking(delta.content);
+
+              if (extracted.reasoning) {
+
+                globalReasoning +=
+                  extracted.reasoning + '\n';
+              }
+
+              // NÃO formatar chunk por chunk
+              fullContent +=
+                extracted.content;
             }
 
             if (
               data.choices?.[0]?.finish_reason
             ) {
+
               finishReason =
                 data.choices[0]
                   .finish_reason;
@@ -598,9 +673,6 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
-
-        fullContent =
-          improveFormatting(fullContent);
 
         res.json({
 
@@ -621,7 +693,15 @@ app.post('/v1/chat/completions', async (req, res) => {
               message: {
                 role: 'assistant',
 
-                content: fullContent
+                content: improveFormatting(
+                  fullContent
+                ),
+
+                reasoning_content:
+                  globalReasoning.trim(),
+
+                reasoning:
+                  globalReasoning.trim()
               },
 
               finish_reason: finishReason
