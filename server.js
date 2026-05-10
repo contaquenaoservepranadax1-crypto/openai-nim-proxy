@@ -105,6 +105,23 @@ function escapeHtml(text) {
 }
 
 // ============================================================
+// FIX PARAGRAPHS
+// ============================================================
+
+function fixParagraphs(text) {
+  if (!text) return text;
+
+  return text
+    .replace(/(\*)\s+(\*\*)/g, '$1\n\n$2')
+    .replace(/(\*)\s*(\*\*)/g, '$1\n\n$2')
+    .replace(/(\*\*[^*]+\*\*)\s*(\*[^*])/g, '$1\n\n$2')
+    .replace(/("\*\*)\s*(\*[^*])/g, '$1\n\n$2')
+    .replace(/([^*]\*)\s{2,}(\*[^*])/g, '$1\n\n$2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// ============================================================
 // DEBUG PAGE
 // ============================================================
 
@@ -213,14 +230,6 @@ function limitMessagesByTokens(messages, maxTokens = 100000) {
 }
 
 // ============================================================
-// HELPER: detecta se o modelo é GLM 5.1
-// ============================================================
-
-function isGLM51(nimModel) {
-  return nimModel === 'z-ai/glm-5.1';
-}
-
-// ============================================================
 // ROUTES
 // ============================================================
 
@@ -270,21 +279,6 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
 
   // ============================================================
-  // chat_template_kwargs adaptado por modelo
-  // ============================================================
-
-  const chatTemplateKwargs = isGLM51(nimModel)
-    ? {
-        thinking: true,
-        clear_thinking: true,
-        do_sample: true,
-        enable_thinking: true
-      }
-    : {
-        thinking: true
-      };
-
-  // ============================================================
   // NIM REQUEST
   // ============================================================
 
@@ -295,7 +289,12 @@ app.post('/v1/chat/completions', async (req, res) => {
     max_tokens: max_tokens ?? 16384,
     stream: true,
     extra_body: {
-      chat_template_kwargs: chatTemplateKwargs
+      chat_template_kwargs: {
+        thinking: true,
+        clear_thinking: true,
+        do_sample: true,
+        enable_thinking: true
+      }
     }
   };
 
@@ -324,6 +323,8 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.setHeader('X-Accel-Buffering', 'no');
 
       let sseBuffer = '';
+      let fullContent = '';
+      let lastData = null;
 
       response.data.on('data', (chunk) => {
         sseBuffer += chunk.toString();
@@ -334,15 +335,17 @@ app.post('/v1/chat/completions', async (req, res) => {
         for (const line of lines) {
           if (line.startsWith(':')) continue;
           if (!line.startsWith('data: ')) continue;
-
-          if (line.includes('[DONE]')) {
-            res.write('data: [DONE]\n\n');
-            continue;
-          }
+          if (line.includes('[DONE]')) continue;
 
           try {
             const data = JSON.parse(line.slice(6));
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
+            const delta = data.choices?.[0]?.delta;
+
+            if (delta?.content) {
+              fullContent += delta.content;
+            }
+
+            lastData = data;
           } catch (err) {
             console.error('Chunk parse error:', err.message);
           }
@@ -350,6 +353,24 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
+        const fixedContent = fixParagraphs(fullContent);
+
+        if (lastData) {
+          const finalChunk = {
+            ...lastData,
+            choices: [
+              {
+                index: 0,
+                delta: { content: fixedContent },
+                finish_reason: lastData.choices?.[0]?.finish_reason || 'stop'
+              }
+            ]
+          };
+          res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+        }
+
+        res.write('data: [DONE]\n\n');
+
         if (!res.writableEnded) res.end();
       });
 
@@ -399,6 +420,8 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
 
       response.data.on('end', () => {
+        const fixedContent = fixParagraphs(fullContent);
+
         res.json({
           id: `chatcmpl-${Date.now()}`,
           object: 'chat.completion',
@@ -409,7 +432,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               index: 0,
               message: {
                 role: 'assistant',
-                content: fullContent
+                content: fixedContent
               },
               finish_reason: finishReason
             }
