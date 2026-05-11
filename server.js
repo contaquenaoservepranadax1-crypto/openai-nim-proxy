@@ -108,42 +108,48 @@ function escapeHtml(text) {
 // FIX PARAGRAPHS
 //
 // Estratégia:
-// 1. Colapsa todas as quebras existentes em espaço simples
-//    para partir de um estado limpo
-// 2. Reinsere \n\n apenas em transições reais de cena:
-//    quando um bloco de ação longo (terminado em . ! ? …)
-//    é seguido por outro bloco de ação que começa com
-//    maiúscula — indicando mudança de momento narrativo
-// 3. Diálogos curtos e ações curtas ficam no mesmo parágrafo
+// 1. Não colapsa nada — preserva quebras corretas que o modelo fez
+// 2. Junta quebras erradas: quando \n\n aparece entre um diálogo
+//    curto e a ação que o continua, remove a quebra
+// 3. Garante \n\n (não \n simples) entre blocos que merecem
+//    separação — blocos longos de ação separados entre si
+// 4. Limpa quebras triplas ou mais
 // ============================================================
 
 function fixParagraphs(text) {
   if (!text) return text;
 
-  // Passo 1: colapsa quebras de linha em espaço simples
-  // para limpar o que o modelo inseriu errado
-  let result = text.replace(/\n+/g, ' ').trim();
+  let result = text;
 
-  // Passo 2: reinsere \n\n em transições reais de cena
-  // Padrão: fim de bloco itálico que termina com . ! ? ou …
-  // seguido de novo bloco itálico que começa com maiúscula
-  // Ex: *...vow.* *She reaches...* → quebra entre os dois
+  // Passo 1: normaliza \n simples entre blocos markdown
+  // \n sozinho entre dois blocos vira \n\n
+  result = result.replace(/([*_"»])\n([*_"«\*])/g, '$1\n\n$2');
+
+  // Passo 2: remove \n\n entre diálogo curto e ação que o continua
+  // Ex: **"I'm fine,"**\n\n*she says* → **"I'm fine,"** *she says*
   result = result.replace(
-    /(\*[^*]{60,}[.!?…]\*)\s*(\*[A-Z])/g,
-    '$1\n\n$2'
+    /(\*\*"[^"]{1,60}[,.]?"\*\*)\n\n(\*[^*])/g,
+    '$1 $2'
   );
 
-  // Passo 3: também quebra quando bloco de ação longo
-  // é seguido de diálogo longo (mais de 40 chars)
+  // Passo 3: remove \n\n entre ação curta e diálogo que a continua
+  // Ex: *she says,*\n\n**"..."** → *she says,* **"..."**
   result = result.replace(
-    /(\*[^*]{60,}[.!?…]\*)\s*(\*\*"[^"]{40,})/g,
-    '$1\n\n$2'
+    /(\*[^*]{1,60}[,]\*)\n\n(\*\*")/g,
+    '$1 $2'
   );
 
-  // Limpa espaços duplicados
-  result = result.replace(/ {2,}/g, ' ').trim();
+  // Passo 4: remove \n\n entre ação curta e outra ação curta
+  // que claramente continua a mesma cena
+  result = result.replace(
+    /(\*[^*]{1,40}[,]\*)\n\n(\*[A-Za-z])/g,
+    '$1 $2'
+  );
 
-  return result;
+  // Passo 5: limpa quebras triplas ou mais
+  result = result.replace(/\n{3,}/g, '\n\n');
+
+  return result.trim();
 }
 
 // ============================================================
