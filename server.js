@@ -107,13 +107,9 @@ function escapeHtml(text) {
 // ============================================================
 // FIX PARAGRAPHS
 //
-// Estratégia:
-// 1. Não colapsa nada — preserva quebras corretas que o modelo fez
-// 2. Junta quebras erradas: quando \n\n aparece entre um diálogo
-//    curto e a ação que o continua, remove a quebra
-// 3. Garante \n\n (não \n simples) entre blocos que merecem
-//    separação — blocos longos de ação separados entre si
-// 4. Limpa quebras triplas ou mais
+// Não colapsa nada — preserva quebras corretas que o modelo fez.
+// Apenas remove quebras erradas entre diálogo curto e ação,
+// e garante \n\n onde há \n simples entre blocos.
 // ============================================================
 
 function fixParagraphs(text) {
@@ -121,32 +117,28 @@ function fixParagraphs(text) {
 
   let result = text;
 
-  // Passo 1: normaliza \n simples entre blocos markdown
-  // \n sozinho entre dois blocos vira \n\n
-  result = result.replace(/([*_"»])\n([*_"«\*])/g, '$1\n\n$2');
+  // Normaliza \n simples entre blocos markdown para \n\n
+  result = result.replace(/([*_"»])\n([*_"«*])/g, '$1\n\n$2');
 
-  // Passo 2: remove \n\n entre diálogo curto e ação que o continua
-  // Ex: **"I'm fine,"**\n\n*she says* → **"I'm fine,"** *she says*
+  // Remove \n\n entre diálogo curto e ação que o continua
   result = result.replace(
     /(\*\*"[^"]{1,60}[,.]?"\*\*)\n\n(\*[^*])/g,
     '$1 $2'
   );
 
-  // Passo 3: remove \n\n entre ação curta e diálogo que a continua
-  // Ex: *she says,*\n\n**"..."** → *she says,* **"..."**
+  // Remove \n\n entre ação curta e diálogo que a continua
   result = result.replace(
     /(\*[^*]{1,60}[,]\*)\n\n(\*\*")/g,
     '$1 $2'
   );
 
-  // Passo 4: remove \n\n entre ação curta e outra ação curta
-  // que claramente continua a mesma cena
+  // Remove \n\n entre ação curta e outra ação curta da mesma cena
   result = result.replace(
     /(\*[^*]{1,40}[,]\*)\n\n(\*[A-Za-z])/g,
     '$1 $2'
   );
 
-  // Passo 5: limpa quebras triplas ou mais
+  // Limpa quebras triplas ou mais
   result = result.replace(/\n{3,}/g, '\n\n');
 
   return result.trim();
@@ -295,18 +287,36 @@ app.post('/v1/chat/completions', async (req, res) => {
   const limitedMessages = limitMessagesByTokens(messages, 100000);
 
   // ============================================================
-  // Força parágrafos no system prompt
+  // Injeta lembrete de formatação no system prompt
   // ============================================================
 
   const systemIndex = limitedMessages.findIndex(m => m.role === 'system');
   if (systemIndex !== -1) {
     limitedMessages[systemIndex].content +=
-      '\n\n[Formatting rule: You MUST separate each paragraph with a blank line. Never write a wall of text. Action beats, dialogue, and internal thoughts must each be in their own separate paragraph, with a blank line between them.]';
+      '\n\n[Formatting rule: YOUR responses must ALWAYS use multiple paragraphs separated by blank lines, regardless of how the user formats their messages. Never write a wall of text. Each shift in action, dialogue, or emotion must start a new paragraph. This applies to every single response, no exceptions.]';
   } else {
     limitedMessages.unshift({
       role: 'system',
-      content: '[Formatting rule: You MUST separate each paragraph with a blank line. Never write a wall of text. Action beats, dialogue, and internal thoughts must each be in their own separate paragraph, with a blank line between them.]'
+      content: '[Formatting rule: YOUR responses must ALWAYS use multiple paragraphs separated by blank lines, regardless of how the user formats their messages. Never write a wall of text. Each shift in action, dialogue, or emotion must start a new paragraph. This applies to every single response, no exceptions.]'
     });
+  }
+
+  // ============================================================
+  // Injeta lembrete no final da última mensagem do usuário
+  // ============================================================
+
+  const lastUserIndex = limitedMessages.reduce(
+    (last, m, i) => (m.role === 'user' ? i : last),
+    -1
+  );
+
+  if (lastUserIndex !== -1) {
+    limitedMessages[lastUserIndex] = {
+      ...limitedMessages[lastUserIndex],
+      content:
+        limitedMessages[lastUserIndex].content +
+        '\n\n[Reminder: minimum 6 paragraphs in your response, each separated by a blank line. Never write a wall of text.]'
+    };
   }
 
   // ============================================================
