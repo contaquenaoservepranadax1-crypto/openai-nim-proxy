@@ -283,40 +283,7 @@ app.post('/v1/chat/completions', async (req, res) => {
   const limitedMessages = limitMessagesByTokens(messages, 100000);
 
   // ============================================================
-  // Injeta lembrete de formatação no system prompt
-  // ============================================================
-
-  const systemIndex = limitedMessages.findIndex(m => m.role === 'system');
-  if (systemIndex !== -1) {
-    limitedMessages[systemIndex].content +=
-      '\n\n[Formatting rule: YOUR responses must ALWAYS use multiple paragraphs separated by blank lines, regardless of how the user formats their messages. Never write a wall of text. Each shift in action, dialogue, or emotion must start a new paragraph. This applies to every single response, no exceptions.]';
-  } else {
-    limitedMessages.unshift({
-      role: 'system',
-      content: '[Formatting rule: YOUR responses must ALWAYS use multiple paragraphs separated by blank lines, regardless of how the user formats their messages. Never write a wall of text. Each shift in action, dialogue, or emotion must start a new paragraph. This applies to every single response, no exceptions.]'
-    });
-  }
-
-  // ============================================================
-  // Injeta lembrete no final da última mensagem do usuário
-  // ============================================================
-
-  const lastUserIndex = limitedMessages.reduce(
-    (last, m, i) => (m.role === 'user' ? i : last),
-    -1
-  );
-
-  if (lastUserIndex !== -1) {
-    limitedMessages[lastUserIndex] = {
-      ...limitedMessages[lastUserIndex],
-      content:
-        limitedMessages[lastUserIndex].content +
-        '\n\n[Reminder: write multiple paragraphs separated by blank lines. Each shift in action, dialogue, or emotion starts a new paragraph.]'
-    };
-  }
-
-  // ============================================================
-  // NIM REQUEST — parâmetros corretos do model card oficial
+  // NIM REQUEST
   // ============================================================
 
   const nimRequest = {
@@ -349,8 +316,6 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     // ============================================================
     // STREAM MODE
-    // Acumula tudo, injeta <think> do reasoning, aplica
-    // fixParagraphs no content, e envia num único chunk no final
     // ============================================================
 
     if (stream) {
@@ -397,7 +362,6 @@ app.post('/v1/chat/completions', async (req, res) => {
       response.data.on('end', () => {
         const fixedContent = fixParagraphs(fullContent);
 
-        // Monta conteúdo final: thinking na frente se existir
         const finalContent = fullReasoning.length > 0
           ? `<think>${fullReasoning}</think>\n\n${fixedContent}`
           : fixedContent;
@@ -531,7 +495,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 // ============================================================
 
 app.post('/v1/diagnose', async (req, res) => {
-  const nimModel = 'z-ai/glm-5.1';
+  const nimModel = 'nvidia/llama-3.3-nemotron-super-49b-v1.5';
 
   const nimRequest = {
     model: nimModel,
