@@ -106,10 +106,6 @@ function escapeHtml(text) {
 
 // ============================================================
 // FIX PARAGRAPHS
-//
-// Não colapsa nada — preserva quebras corretas que o modelo fez.
-// Apenas remove quebras erradas entre diálogo curto e ação,
-// e garante \n\n onde há \n simples entre blocos.
 // ============================================================
 
 function fixParagraphs(text) {
@@ -315,12 +311,12 @@ app.post('/v1/chat/completions', async (req, res) => {
       ...limitedMessages[lastUserIndex],
       content:
         limitedMessages[lastUserIndex].content +
-        '\n\n[Reminder: minimum 6 paragraphs in your response, each separated by a blank line. Never write a wall of text.]'
+        '\n\n[Reminder: write multiple paragraphs separated by blank lines. Each shift in action, dialogue, or emotion starts a new paragraph.]'
     };
   }
 
   // ============================================================
-  // NIM REQUEST
+  // NIM REQUEST — parâmetros corretos do model card oficial
   // ============================================================
 
   const nimRequest = {
@@ -331,10 +327,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     stream: true,
     extra_body: {
       chat_template_kwargs: {
-        thinking: true,
-        clear_thinking: true,
-        do_sample: true,
-        enable_thinking: true
+        enable_thinking: true,
+        clear_thinking: false
       }
     }
   };
@@ -355,6 +349,8 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     // ============================================================
     // STREAM MODE
+    // Acumula tudo, injeta <think> do reasoning, aplica
+    // fixParagraphs no content, e envia num único chunk no final
     // ============================================================
 
     if (stream) {
@@ -364,6 +360,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.setHeader('X-Accel-Buffering', 'no');
 
       let sseBuffer = '';
+      let fullReasoning = '';
       let fullContent = '';
       let lastData = null;
 
@@ -382,6 +379,10 @@ app.post('/v1/chat/completions', async (req, res) => {
             const data = JSON.parse(line.slice(6));
             const delta = data.choices?.[0]?.delta;
 
+            if (delta?.reasoning_content) {
+              fullReasoning += delta.reasoning_content;
+            }
+
             if (delta?.content) {
               fullContent += delta.content;
             }
@@ -396,13 +397,18 @@ app.post('/v1/chat/completions', async (req, res) => {
       response.data.on('end', () => {
         const fixedContent = fixParagraphs(fullContent);
 
+        // Monta conteúdo final: thinking na frente se existir
+        const finalContent = fullReasoning.length > 0
+          ? `<think>${fullReasoning}</think>\n\n${fixedContent}`
+          : fixedContent;
+
         if (lastData) {
           const finalChunk = {
             ...lastData,
             choices: [
               {
                 index: 0,
-                delta: { content: fixedContent },
+                delta: { content: finalContent },
                 finish_reason: lastData.choices?.[0]?.finish_reason || 'stop'
               }
             ]
@@ -425,6 +431,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     // ============================================================
 
     } else {
+      let fullReasoning = '';
       let fullContent = '';
       let finishReason = 'stop';
       let usageData = null;
@@ -445,6 +452,10 @@ app.post('/v1/chat/completions', async (req, res) => {
             const data = JSON.parse(line.slice(6));
             const delta = data.choices?.[0]?.delta;
 
+            if (delta?.reasoning_content) {
+              fullReasoning += delta.reasoning_content;
+            }
+
             if (delta?.content) {
               fullContent += delta.content;
             }
@@ -463,6 +474,10 @@ app.post('/v1/chat/completions', async (req, res) => {
       response.data.on('end', () => {
         const fixedContent = fixParagraphs(fullContent);
 
+        const finalContent = fullReasoning.length > 0
+          ? `<think>${fullReasoning}</think>\n\n${fixedContent}`
+          : fixedContent;
+
         res.json({
           id: `chatcmpl-${Date.now()}`,
           object: 'chat.completion',
@@ -473,7 +488,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               index: 0,
               message: {
                 role: 'assistant',
-                content: fixedContent
+                content: finalContent
               },
               finish_reason: finishReason
             }
@@ -526,10 +541,8 @@ app.post('/v1/diagnose', async (req, res) => {
     stream: true,
     extra_body: {
       chat_template_kwargs: {
-        thinking: true,
-        clear_thinking: true,
-        do_sample: true,
-        enable_thinking: true
+        enable_thinking: true,
+        clear_thinking: false
       }
     }
   };
