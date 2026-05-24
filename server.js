@@ -3,6 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const { StringDecoder } = require('string_decoder');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +22,36 @@ app.use((req, res, next) => {
 });
 
 // ============================================================
+// AUTH
+// Rotas /health e /v1/models são públicas
+// ============================================================
+
+app.use((req, res, next) => {
+  if (req.path === '/health' || req.path === '/v1/models') {
+    return next();
+  }
+
+  const clientAuthKey = process.env.CLIENT_AUTH_KEY;
+
+  if (clientAuthKey) {
+    const auth = req.headers.authorization?.trim();
+    const expected = `Bearer ${clientAuthKey}`;
+
+    if (!auth || auth.localeCompare(expected) !== 0) {
+      return res.status(403).json({
+        error: {
+          message: 'Forbidden',
+          type: 'authentication_error',
+          code: 403
+        }
+      });
+    }
+  }
+
+  next();
+});
+
+// ============================================================
 // NVIDIA CONFIG
 // ============================================================
 
@@ -30,18 +61,49 @@ const NIM_API_BASE =
 const NIM_API_KEY = process.env.NVIDIA_SECOND_API_KEY;
 
 // ============================================================
+// TOGGLES via env var
+// ============================================================
+
+const SHOW_REASONING = process.env.SHOW_REASONING !== 'false';
+const ENABLE_THINKING_MODE = process.env.ENABLE_THINKING_MODE !== 'false';
+
+if (SHOW_REASONING) console.log('[CONFIG] Reasoning display: ENABLED');
+if (ENABLE_THINKING_MODE) console.log('[CONFIG] Thinking mode: ENABLED');
+
+// ============================================================
 // MODEL MAPPING
 // ============================================================
 
 const MODEL_MAPPING = {
-  'gpt-3.5-turbo': 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gpt-4': 'z-ai/glm-5.1',
-  'gpt-4-turbo': 'moonshotai/kimi-k2.6',
-  'gpt-4o': 'deepseek-ai/deepseek-v4-pro',
-  'claude-3-opus': 'openai/gpt-oss-120b',
-  'claude-3-sonnet': 'openai/gpt-oss-20b',
-  'gemini-pro': 'bytedance/seed-oss-36b-instruct'
+  'gpt-3.5-turbo':  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gpt-4':          'z-ai/glm-5.1',
+  'gpt-4-turbo':    'moonshotai/kimi-k2.6',
+  'gpt-4o':         'deepseek-ai/deepseek-v4-pro',
+  'claude-3-opus':  'openai/gpt-oss-120b',
+  'claude-3-sonnet':'openai/gpt-oss-20b',
+  'gemini-pro':     'qwen/qwen3-next-80b-a3b-thinking',
+  'mistral':        'mistralai/mistral-large-3-675b-instruct-2512',
+  'mistral-turbo':  'mistralai/mistral-medium-3.5-128b',
+  'mistral-pro':    'mistralai/mistral-small-4-119b-2603',
+  'mistral-fast':   'mistralai/ministral-14b-instruct-2512',
+  'mistral-nemo':   'mistralai/mistral-nemotron',
+  'google-light':   'google/gemma-4-31b-it',
+  'google-lighter': 'google/gemma-3n-e4b-it',
+  'google-lightest':'google/gemma-2-2b-it',
+  'step':           'stepfun-ai/step-3.5-flash',
+  'm2.7':           'minimaxai/minimax-m2.7'
 };
+
+// ============================================================
+// FALLBACK CHAIN
+// ============================================================
+
+const FALLBACK_MODELS = [
+  'mistralai/mistral-medium-3.5-128b',
+  'mistralai/mistral-small-4-119b-2603',
+  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'google/gemma-4-31b-it'
+];
 
 // ============================================================
 // DEBUG STORE
@@ -60,26 +122,20 @@ function saveDebugEntry(rawBody) {
   const entry = {
     timestamp: new Date().toISOString(),
     model_requested: rawBody.model,
-    model_mapped:
-      MODEL_MAPPING[rawBody.model] || 'meta/llama-3.1-70b-instruct',
-
+    model_mapped: MODEL_MAPPING[rawBody.model] || 'fallback',
     temperature: rawBody.temperature,
     max_tokens: rawBody.max_tokens,
     stream: rawBody.stream,
-
     total_messages: messages.length,
-
     estimated_tokens: messages.reduce(
       (sum, m) => sum + estimateTokens(JSON.stringify(m)),
       0
     ),
-
     messages: messages.map((m, i) => ({
       index: i,
       role: m.role,
       char_length: (m.content || '').length,
       estimated_tokens: estimateTokens(JSON.stringify(m)),
-
       content_preview:
         (m.content || '').length > 600
           ? (m.content || '').slice(0, 300) +
@@ -90,10 +146,7 @@ function saveDebugEntry(rawBody) {
   };
 
   debugStore.unshift(entry);
-
-  if (debugStore.length > MAX_DEBUG_ENTRIES) {
-    debugStore.pop();
-  }
+  if (debugStore.length > MAX_DEBUG_ENTRIES) debugStore.pop();
 }
 
 function escapeHtml(text) {
@@ -113,28 +166,23 @@ function fixParagraphs(text) {
 
   let result = text;
 
-  // Normaliza \n simples entre blocos markdown para \n\n
   result = result.replace(/([*_"»])\n([*_"«*])/g, '$1\n\n$2');
 
-  // Remove \n\n entre diálogo curto e ação que o continua
   result = result.replace(
     /(\*\*"[^"]{1,60}[,.]?"\*\*)\n\n(\*[^*])/g,
     '$1 $2'
   );
 
-  // Remove \n\n entre ação curta e diálogo que a continua
   result = result.replace(
     /(\*[^*]{1,60}[,]\*)\n\n(\*\*")/g,
     '$1 $2'
   );
 
-  // Remove \n\n entre ação curta e outra ação curta da mesma cena
   result = result.replace(
     /(\*[^*]{1,40}[,]\*)\n\n(\*[A-Za-z])/g,
     '$1 $2'
   );
 
-  // Limpa quebras triplas ou mais
   result = result.replace(/\n{3,}/g, '\n\n');
 
   return result.trim();
@@ -227,16 +275,13 @@ app.get('/debug/raw', (req, res) => {
 // ============================================================
 
 function limitMessagesByTokens(messages, maxTokens = 100000) {
-  if (!messages || messages.length === 0) {
-    return messages;
-  }
+  if (!messages || messages.length === 0) return messages;
 
   let totalTokens = 0;
   const keptMessages = [];
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const tokens = estimateTokens(JSON.stringify(messages[i]));
-
     if (totalTokens + tokens <= maxTokens) {
       keptMessages.unshift(messages[i]);
       totalTokens += tokens;
@@ -269,50 +314,76 @@ app.get('/v1/models', (_, res) => {
 });
 
 // ============================================================
+// FALLBACK CALLER
+// ============================================================
+
+async function callWithFallback(baseRequest, models) {
+  for (const model of models) {
+    try {
+      const response = await axios.post(
+        `${NIM_API_BASE}/chat/completions`,
+        { ...baseRequest, model },
+        {
+          headers: {
+            Authorization: `Bearer ${NIM_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          responseType: 'stream',
+          timeout: 600000
+        }
+      );
+
+      console.log('[PROXY] Model used:', model);
+      return { response, model };
+
+    } catch (err) {
+      console.warn(
+        `[FALLBACK] Model failed: ${model}`,
+        err.response?.status,
+        err.response?.data?.error?.message || err.message
+      );
+    }
+  }
+
+  throw new Error('All models failed');
+}
+
+// ============================================================
 // CHAT COMPLETIONS
 // ============================================================
 
 app.post('/v1/chat/completions', async (req, res) => {
-  const { model, messages, temperature, max_tokens, stream } = req.body;
-
-  saveDebugEntry(req.body);
-
-  const nimModel =
-    MODEL_MAPPING[model] || 'meta/llama-3.1-70b-instruct';
-
-  const limitedMessages = limitMessagesByTokens(messages, 100000);
-
-  // ============================================================
-  // NIM REQUEST
-  // ============================================================
-
-  const nimRequest = {
-    model: nimModel,
-    messages: limitedMessages,
-    temperature: temperature ?? 1.0,
-    max_tokens: max_tokens ?? 16384,
-    stream: true,
-    extra_body: {
-      chat_template_kwargs: {
-        enable_thinking: true,
-        clear_thinking: false
-      }
-    }
-  };
+  let streamEndedCleanly = false;
 
   try {
-    const response = await axios.post(
-      `${NIM_API_BASE}/chat/completions`,
-      nimRequest,
-      {
-        headers: {
-          Authorization: `Bearer ${NIM_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        responseType: 'stream',
-        timeout: 600000
-      }
-    );
+    const { model, messages, temperature, max_tokens, stream } = req.body;
+
+    saveDebugEntry(req.body);
+
+    const primaryModel =
+      MODEL_MAPPING[model] || 'nvidia/llama-3.3-nemotron-super-49b-v1.5';
+
+    const modelChain = [primaryModel, ...FALLBACK_MODELS];
+
+    const limitedMessages = limitMessagesByTokens(messages, 100000);
+
+    const baseRequest = {
+      messages: limitedMessages,
+      temperature: temperature ?? 1.0,
+      max_tokens: max_tokens ?? 16384,
+      stream: true,
+      ...(ENABLE_THINKING_MODE && {
+        extra_body: {
+          chat_template_kwargs: {
+            enable_thinking: true,
+            clear_thinking: false
+          }
+        }
+      })
+    };
+
+    const { response, model: usedModel } =
+      await callWithFallback(baseRequest, modelChain);
 
     // ============================================================
     // STREAM MODE
@@ -324,13 +395,14 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
 
+      const decoder = new StringDecoder('utf8');
       let sseBuffer = '';
       let fullReasoning = '';
       let fullContent = '';
       let lastData = null;
 
       response.data.on('data', (chunk) => {
-        sseBuffer += chunk.toString();
+        sseBuffer += decoder.write(chunk);
 
         const lines = sseBuffer.split('\n');
         sseBuffer = lines.pop() || '';
@@ -354,17 +426,20 @@ app.post('/v1/chat/completions', async (req, res) => {
 
             lastData = data;
           } catch (err) {
-            console.error('Chunk parse error:', err.message);
+            console.warn('[STREAM] Skipped invalid JSON:', line.slice(0, 100));
           }
         }
       });
 
       response.data.on('end', () => {
+        sseBuffer += decoder.end();
+
         const fixedContent = fixParagraphs(fullContent);
 
-        const finalContent = fullReasoning.length > 0
-          ? `<think>${fullReasoning}</think>\n\n${fixedContent}`
-          : fixedContent;
+        const finalContent =
+          SHOW_REASONING && fullReasoning.length > 0
+            ? `<think>${fullReasoning}</think>\n\n${fixedContent}`
+            : fixedContent;
 
         if (lastData) {
           const finalChunk = {
@@ -373,7 +448,8 @@ app.post('/v1/chat/completions', async (req, res) => {
               {
                 index: 0,
                 delta: { content: finalContent },
-                finish_reason: lastData.choices?.[0]?.finish_reason || 'stop'
+                finish_reason:
+                  lastData.choices?.[0]?.finish_reason || 'stop'
               }
             ]
           };
@@ -381,13 +457,25 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
 
         res.write('data: [DONE]\n\n');
-
+        streamEndedCleanly = true;
         if (!res.writableEnded) res.end();
       });
 
       response.data.on('error', (err) => {
-        console.error('Stream error:', err.message);
-        if (!res.writableEnded) res.end();
+        console.error('[STREAM] Upstream error:', err.message);
+        if (!res.writableEnded) {
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }
+      });
+
+      req.on('close', () => {
+        if (!streamEndedCleanly) {
+          console.warn('[STREAM] Client disconnected prematurely');
+        }
+        if (response.data && !response.data.destroyed) {
+          response.data.destroy();
+        }
       });
 
     // ============================================================
@@ -400,9 +488,10 @@ app.post('/v1/chat/completions', async (req, res) => {
       let finishReason = 'stop';
       let usageData = null;
       let sseBuffer = '';
+      const decoder = new StringDecoder('utf8');
 
       response.data.on('data', (chunk) => {
-        sseBuffer += chunk.toString();
+        sseBuffer += decoder.write(chunk);
 
         const lines = sseBuffer.split('\n');
         sseBuffer = lines.pop() || '';
@@ -438,9 +527,10 @@ app.post('/v1/chat/completions', async (req, res) => {
       response.data.on('end', () => {
         const fixedContent = fixParagraphs(fullContent);
 
-        const finalContent = fullReasoning.length > 0
-          ? `<think>${fullReasoning}</think>\n\n${fixedContent}`
-          : fixedContent;
+        const finalContent =
+          SHOW_REASONING && fullReasoning.length > 0
+            ? `<think>${fullReasoning}</think>\n\n${fixedContent}`
+            : fixedContent;
 
         res.json({
           id: `chatcmpl-${Date.now()}`,
@@ -473,8 +563,9 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
       });
     }
+
   } catch (error) {
-    console.error('Proxy error:', error.response?.data || error.message);
+    console.error('[PROXY] Fatal error:', error.message);
 
     if (!res.headersSent) {
       res.status(error.response?.status || 500).json({
@@ -485,6 +576,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         }
       });
     } else if (!res.writableEnded) {
+      res.write('data: [DONE]\n\n');
       res.end();
     }
   }
