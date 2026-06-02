@@ -81,7 +81,7 @@ const MODEL_MAPPING = {
   'gpt-4o':         'deepseek-ai/deepseek-v4-pro',
   'claude-3-opus':  'openai/gpt-oss-120b',
   'claude-3-sonnet':'openai/gpt-oss-20b',
-  'gemini-pro':     'qwen/qwen3-next-80b-a3b-thinking',
+  'gemini-pro':     'qwen/qwen3.5-122b-a10b',
   'mistral':        'mistralai/mistral-large-3-675b-instruct-2512',
   'mistral-turbo':  'mistralai/mistral-medium-3.5-128b',
   'mistral-pro':    'mistralai/mistral-small-4-119b-2603',
