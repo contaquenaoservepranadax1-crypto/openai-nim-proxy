@@ -48,12 +48,12 @@ validateConfig();
 
 const MODEL_MAPPING = {
   'gpt-3.5-turbo':  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gpt-4':          'z-ai/glm-5.2',
+  'gpt-4':          'nvidia/nemotron-3-ultra-550b-a55b',
   'gpt-4-turbo':    'moonshotai/kimi-k2.6',
-  'gpt-4o':         'deepseek-ai/deepseek-v4-pro',
+  'gpt-4o':         'meta/llama-3.3-70b-instruct',
   'claude-3-opus':  'openai/gpt-oss-120b',
   'claude-3-sonnet':'openai/gpt-oss-20b',
-  'gemini-pro':     'qwen/qwen3-next-80b-a3b-thinking',
+  'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'mistral':        'mistralai/mistral-large-3-675b-instruct-2512',
   'mistral-turbo':  'mistralai/mistral-medium-3.5-128b',
   'mistral-pro':    'mistralai/mistral-small-4-119b-2603',
@@ -64,7 +64,8 @@ const MODEL_MAPPING = {
   'google-lightest':'google/gemma-2-2b-it',
   'step':           'stepfun-ai/step-3.5-flash',
   'step-3.7':       'stepfun-ai/step-3.7-flash',
-  'm2.7':           'minimaxai/minimax-m2.7'
+  'm2.7':           'minimaxai/minimax-m2.7',
+  'glm':            'z-ai/glm-5.2'
 };
 
 // ============================================================
