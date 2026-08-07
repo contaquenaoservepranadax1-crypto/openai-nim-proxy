@@ -54,29 +54,21 @@ const MODEL_MAPPING = {
   'claude-3-opus':  'openai/gpt-oss-120b',
   'claude-3-sonnet':'openai/gpt-oss-20b',
   'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'mistral':        'mistralai/mistral-large-3-675b-instruct-2512',
-  'mistral-turbo':  'mistralai/mistral-medium-3.5-128b',
-  'mistral-pro':    'mistralai/mistral-small-4-119b-2603',
-  'mistral-fast':   'mistralai/ministral-14b-instruct-2512',
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
-  'google-lighter': 'google/gemma-3n-e4b-it',
-  'google-lightest':'google/gemma-2-2b-it',
-  'step':           'stepfun-ai/step-3.5-flash',
   'step-3.7':       'stepfun-ai/step-3.7-flash',
-  'm2.7':           'minimaxai/minimax-m2.7',
   'glm':            'z-ai/glm-5.2'
 };
 
-// ============================================================
-// FALLBACK CHAIN
-// ============================================================
+// =================================================================
+//FALL BACK CHAIN
+//==================================================================
 
 const FALLBACK_MODELS = [
-  'mistralai/mistral-medium-3.5-128b',
-  'mistralai/mistral-small-4-119b-2603',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'google/gemma-4-31b-it'
+  'meta/llama-3.3-70b-instruct',
+  'google/gemma-4-31b-it',
+  'mistralai/mistral-nemotron'
 ];
 
 // ============================================================
