@@ -61,8 +61,8 @@ const MODEL_MAPPING = {
 };
 
 // =================================================================
-//FALL BACK CHAIN
-//==================================================================
+// FALL BACK CHAIN
+// =================================================================
 
 const FALLBACK_MODELS = [
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
@@ -463,12 +463,23 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     const limitedMessages = limitMessagesByTokens(messages, 100000);
 
+    // ============================================================
+    // THINKING MODE — apenas para modelos que suportam
+    // ============================================================
+
+    const THINKING_SUPPORTED_MODELS = new Set([
+      'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+      'nvidia/nemotron-3-ultra-550b-a55b',
+      'stepfun-ai/step-3.7-flash',
+      'stepfun-ai/step-3.5-flash'
+    ]);
+
     const baseRequest = {
       messages: limitedMessages,
       temperature: temperature ?? 1.0,
       max_tokens: max_tokens ?? 16384,
       stream: true,
-      ...(ENABLE_THINKING_MODE && {
+      ...(ENABLE_THINKING_MODE && THINKING_SUPPORTED_MODELS.has(primaryModel) && {
         extra_body: {
           chat_template_kwargs: {
             enable_thinking: true,
