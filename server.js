@@ -413,30 +413,45 @@ async function callWithFallback(baseRequest, models) {
   let lastError = null;
 
   for (const model of models) {
-    try {
-      const response = await axios.post(
-        `${NIM_API_BASE}/chat/completions`,
-        { ...baseRequest, model },
-        {
-          headers: {
-            Authorization: `Bearer ${NIM_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          responseType: 'stream',
-          timeout: REQUEST_TIMEOUT_MS
+    let attempts = 0;
+    const maxAttempts = 2;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      try {
+        const response = await axios.post(
+          `${NIM_API_BASE}/chat/completions`,
+          { ...baseRequest, model },
+          {
+            headers: {
+              Authorization: `Bearer ${NIM_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            responseType: 'stream',
+            timeout: REQUEST_TIMEOUT_MS
+          }
+        );
+
+        console.log('[PROXY] Model used:', model);
+        return { response, model };
+
+      } catch (err) {
+        lastError = err;
+        const status = err.response?.status;
+
+        if (status === 504 && attempts < maxAttempts) {
+          console.warn(`[RETRY] Model ${model} returned 504, retrying (attempt ${attempts})...`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
         }
-      );
 
-      console.log('[PROXY] Model used:', model);
-      return { response, model };
-
-    } catch (err) {
-      lastError = err;
-      console.warn(
-        `[FALLBACK] Model failed: ${model}`,
-        err.response?.status,
-        err.response?.data?.error?.message || err.message
-      );
+        console.warn(
+          `[FALLBACK] Model failed: ${model}`,
+          status,
+          err.response?.data?.error?.message || err.message
+        );
+        break;
+      }
     }
   }
 
