@@ -50,7 +50,7 @@ const MODEL_MAPPING = {
   'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
-  'tep-3.7-flash':       'stepfun-ai/step-3.7-flash',
+  'step-3.7-flash':       'stepfun-ai/step-3.7-flash',
   'glm-5.2':            'z-ai/glm-5.2'
 };
 
