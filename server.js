@@ -226,8 +226,8 @@ function getReasoningPayload(model, enableThinking, clientReasoningEffort, hasTo
     }
 
     case 'stepfun-ai/step-3.7-flash': {
-      if (enableThinking) return {};
-      return { chat_template_kwargs: { thinking: false } };
+      if (!enableThinking) return {};
+      return { chat_template_kwargs: { thinking: true } };
     }
 
     default:
@@ -607,6 +607,16 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       upstreamStream.on('end', () => {
         sseBuffer += decoder.end();
+
+        // Se o reasoning veio embutido no content (ex: Stepfun)
+        if (fullReasoning.length === 0 && fullContent.includes('<think>')) {
+          const thinkStart = fullContent.indexOf('<think>');
+          const thinkEnd = fullContent.indexOf('</think>');
+          if (thinkStart !== -1 && thinkEnd !== -1) {
+            fullReasoning = fullContent.substring(thinkStart + 7, thinkEnd);
+            fullContent = fullContent.substring(thinkEnd + 8).trimStart();
+          }
+        }
 
         const finalContent = fullReasoning.length > 0
           ? `<think>${fullReasoning}</think>\n\n${fullContent}`
