@@ -123,9 +123,13 @@ class StreamNormalizer {
   constructor(model) {
     this.model = model;
     this.parser = null;
-    if (model === 'qwen/qwen3.5-397b-a17b' || model === 'nvidia/llama-3.3-nemotron-super-49b-v1.5') {
-      this.parser = new DelimiterParser('<think>', '</think>');
-    }
+    if (
+  model === 'qwen/qwen3.5-397b-a17b' ||
+  model === 'nvidia/llama-3.3-nemotron-super-49b-v1.5' ||
+  model === 'stepfun-ai/step-3.7-flash'
+) {
+  this.parser = new DelimiterParser('<think>', '</think>');
+}
   }
 
   processDelta(delta) {
