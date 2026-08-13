@@ -50,8 +50,8 @@ const MODEL_MAPPING = {
   'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
-  'step-3.7-flash':       'stepfun-ai/step-3.7-flash',
-  'glm-5.2':            'z-ai/glm-5.2'
+  'step-3.7':       'stepfun-ai/step-3.7-flash',
+  'glm':            'z-ai/glm-5.2'
 };
 
 // ─── Fallback Chain ──────────────────────────────────────────────────────────
@@ -557,71 +557,17 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       const decoder = new StringDecoder('utf8');
       let sseBuffer = '';
-      let reasoningOpen = false;
+      let fullReasoning = '';
+      let fullContent = '';
+      let lastData = null;
       let doneSent = false;
       let cleanedUp = false;
-
-      const normalizer = new StreamNormalizer(usedModel);
 
       const cleanup = () => {
         if (cleanedUp) return;
         cleanedUp = true;
         if (upstreamStream) upstreamStream.removeAllListeners();
         req.removeAllListeners('close');
-      };
-
-      const processLine = (line) => {
-        if (!line.startsWith('data: ')) return;
-
-        if (line.includes('[DONE]')) {
-          if (!doneSent) {
-            safeWrite(res, 'data: [DONE]\n\n');
-            doneSent = true;
-          }
-          streamEndedCleanly = true;
-          return;
-        }
-
-        try {
-          const data = JSON.parse(line.slice(6));
-          const delta = data.choices?.[0]?.delta;
-
-          if (delta) {
-            const normalizedDelta = normalizer.processDelta(delta);
-            let clientContent = '';
-
-            if (SHOW_REASONING && inlineReasoning) {
-              if (normalizedDelta.reasoning && !reasoningOpen) {
-                clientContent += `<thinking>\n${normalizedDelta.reasoning}`;
-                reasoningOpen = true;
-              } else if (normalizedDelta.reasoning) {
-                clientContent += normalizedDelta.reasoning;
-              }
-              if (normalizedDelta.content && reasoningOpen) {
-                clientContent += `\n</thinking>\n\n${normalizedDelta.content}`;
-                reasoningOpen = false;
-              } else if (normalizedDelta.content) {
-                clientContent += normalizedDelta.content;
-              }
-            } else {
-              clientContent = normalizedDelta.content || '';
-            }
-
-            if (normalizedDelta.reasoning) {
-              delta.content = `<think>${normalizedDelta.reasoning}</think>${normalizedDelta.content || ''}`;
-            } else {
-              delta.content = clientContent;
-            }
-
-            delete delta.reasoning;
-            delete delta.reasoning_content;
-          }
-
-          safeWrite(res, `data: ${JSON.stringify(data)}\n\n`);
-
-        } catch (parseErr) {
-          console.warn('[STREAM] Invalid JSON line:', line.slice(0, 100));
-        }
       };
 
       upstreamStream.on('data', chunk => {
@@ -638,29 +584,51 @@ app.post('/v1/chat/completions', async (req, res) => {
 
         const lines = sseBuffer.split('\n');
         sseBuffer = lines.pop() || '';
-        for (const line of lines) processLine(line);
+
+        for (const line of lines) {
+          if (line.startsWith(':')) continue;
+          if (!line.startsWith('data: ')) continue;
+          if (line.includes('[DONE]')) continue;
+
+          try {
+            const data = JSON.parse(line.slice(6));
+            const delta = data.choices?.[0]?.delta;
+
+            if (delta?.reasoning_content) fullReasoning += delta.reasoning_content;
+            if (delta?.reasoning) fullReasoning += delta.reasoning;
+            if (delta?.content) fullContent += delta.content;
+
+            lastData = data;
+          } catch (err) {
+            console.warn('[STREAM] Skipped invalid JSON:', line.slice(0, 100));
+          }
+        }
       });
 
       upstreamStream.on('end', () => {
         sseBuffer += decoder.end();
-        if (sseBuffer.trim()) {
-          for (const line of sseBuffer.split('\n')) processLine(line);
+
+        const finalContent = fullReasoning.length > 0
+          ? `<think>${fullReasoning}</think>\n\n${fullContent}`
+          : fullContent;
+
+        if (lastData) {
+          const finalChunk = {
+            ...lastData,
+            choices: [{
+              index: 0,
+              delta: { content: finalContent },
+              finish_reason: lastData.choices?.[0]?.finish_reason || 'stop'
+            }]
+          };
+          safeWrite(res, `data: ${JSON.stringify(finalChunk)}\n\n`);
         }
 
-        const flushedDelta = normalizer.flush();
-        if (flushedDelta.content || flushedDelta.reasoning) {
-          let clientContent = '';
-          if (flushedDelta.reasoning) {
-            clientContent = `<think>${flushedDelta.reasoning}</think>${flushedDelta.content || ''}`;
-          } else {
-            clientContent = flushedDelta.content || '';
-          }
-          if (clientContent) {
-            safeWrite(res, `data: ${JSON.stringify({ choices: [{ delta: { content: clientContent } }] })}\n\n`);
-          }
+        if (!doneSent) {
+          safeWrite(res, 'data: [DONE]\n\n');
+          doneSent = true;
         }
 
-        if (!doneSent) safeWrite(res, 'data: [DONE]\n\n');
         streamEndedCleanly = true;
         if (!res.writableEnded) res.end();
         cleanup();
