@@ -50,8 +50,8 @@ const MODEL_MAPPING = {
   'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
-  'step-3.7-flash':       'stepfun-ai/step-3.7-flash',
-  'glm-5.2':            'z-ai/glm-5.2'
+  'step-3.7':       'stepfun-ai/step-3.7-flash',
+  'glm':            'z-ai/glm-5.2'
 };
 
 // ─── Fallback Chain ──────────────────────────────────────────────────────────
@@ -123,7 +123,11 @@ class StreamNormalizer {
   constructor(model) {
     this.model = model;
     this.parser = null;
-    if (model === 'qwen/qwen3.5-397b-a17b' || model === 'nvidia/llama-3.3-nemotron-super-49b-v1.5') {
+    if (
+      model === 'qwen/qwen3.5-397b-a17b' ||
+      model === 'nvidia/llama-3.3-nemotron-super-49b-v1.5' ||
+      model === 'stepfun-ai/step-3.7-flash'
+    ) {
       this.parser = new DelimiterParser('<think>', '</think>');
     }
   }
@@ -646,19 +650,8 @@ app.post('/v1/chat/completions', async (req, res) => {
         const flushedDelta = normalizer.flush();
         if (flushedDelta.content || flushedDelta.reasoning) {
           let clientContent = '';
-          if (SHOW_REASONING && inlineReasoning) {
-            if (flushedDelta.reasoning && !reasoningOpen) {
-              clientContent += `<thinking>\n${flushedDelta.reasoning}`;
-              reasoningOpen = true;
-            } else if (flushedDelta.reasoning) {
-              clientContent += flushedDelta.reasoning;
-            }
-            if (flushedDelta.content && reasoningOpen) {
-              clientContent += `\n</thinking>\n\n${flushedDelta.content}`;
-              reasoningOpen = false;
-            } else if (flushedDelta.content) {
-              clientContent += flushedDelta.content;
-            }
+          if (flushedDelta.reasoning) {
+            clientContent = `<think>${flushedDelta.reasoning}</think>${flushedDelta.content || ''}`;
           } else {
             clientContent = flushedDelta.content || '';
           }
