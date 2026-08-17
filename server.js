@@ -42,16 +42,20 @@ validateConfig();
 // ─── Model Mapping ───────────────────────────────────────────────────────────
 
 const MODEL_MAPPING = {
+  'gpt-3.5': 'meta/muse-glimmer-30b',
   'gpt-3.5-turbo':  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'gpt-4':          'nvidia/nemotron-3-ultra-550b-a55b',
   'gpt-4o':         'meta/llama-3.3-70b-instruct',
   'claude-3-opus':  'openai/gpt-oss-120b',
   'claude-3-sonnet':'openai/gpt-oss-20b',
   'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gemini-turbo': 'thinkingmachines/inkling',
+  'gemini-turbo?': 'poolside/laguna-xs-2.1',
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
   'step-3.7-flash': 'stepfun-ai/step-3.7-flash',
   'glm-5.2':        'z-ai/glm-5.2'
+  'm3': 'minimaxai/minimax-m3',
 };
 
 // ─── Fallback Chain ──────────────────────────────────────────────────────────
