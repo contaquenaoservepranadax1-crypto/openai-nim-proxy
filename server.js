@@ -54,7 +54,7 @@ const MODEL_MAPPING = {
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
   'step-3.7-flash': 'stepfun-ai/step-3.7-flash',
-  'glm-5.2':        'z-ai/glm-5.2'
+  'glm-5.2':        'z-ai/glm-5.2',
   'm3': 'minimaxai/minimax-m3',
 };
 
