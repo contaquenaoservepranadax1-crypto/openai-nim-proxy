@@ -42,7 +42,7 @@ validateConfig();
 // ─── Model Mapping ───────────────────────────────────────────────────────────
 
 const MODEL_MAPPING = {
-  'gpt-3.5': 'meta/muse-glimmer-30b',
+  'gpt-3.5': 'moonshotai/kimi-k3',
   'gpt-3.5-turbo':  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'gpt-4':          'nvidia/nemotron-3-ultra-550b-a55b',
   'gpt-4o':         'meta/llama-3.3-70b-instruct',
