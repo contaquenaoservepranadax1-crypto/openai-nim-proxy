@@ -49,7 +49,7 @@ const MODEL_MAPPING = {
   'claude-3-opus':  'openai/gpt-oss-120b',
   'claude-3-sonnet':'openai/gpt-oss-20b',
   'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'gemini-turbo': 'thinkingmachines/inkling',
+  'gemini-turbo': 'deepseek-ai/deepseek-v4-flash-0731',
   'gemini-turbo?': 'z-ai/glm-5.3-flash',
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
