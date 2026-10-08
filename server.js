@@ -372,20 +372,29 @@ function escapeHtml(text) {
 
 // ─── Token Limiter ───────────────────────────────────────────────────────────
 
-function limitMessagesByTokens(messages, maxTokens = 100000) {
+function limitMessagesByTokens(messages, maxTokens = 128000) {
   if (!messages || messages.length === 0) return messages;
-  let totalTokens = 0;
+
+  // Mensagens de system (prompt do bot, persona, etc.) são sempre preservadas
+  const system = messages.filter(m => m.role === 'system');
+  const rest = messages.filter(m => m.role !== 'system');
+
+  let totalTokens = system.reduce(
+    (sum, m) => sum + estimateTokens(JSON.stringify(m)),
+    0
+  );
+
   const keptMessages = [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const tokens = estimateTokens(JSON.stringify(messages[i]));
-    if (totalTokens + tokens <= maxTokens) {
-      keptMessages.unshift(messages[i]);
-      totalTokens += tokens;
-    } else {
-      break;
-    }
+
+  // Do mais recente para o mais antigo; corta apenas o histórico antigo
+  for (let i = rest.length - 1; i >= 0; i--) {
+    const tokens = estimateTokens(JSON.stringify(rest[i]));
+    if (totalTokens + tokens > maxTokens) break;
+    keptMessages.unshift(rest[i]);
+    totalTokens += tokens;
   }
-  return keptMessages;
+
+  return [...system, ...keptMessages];
 }
 
 // ─── Safe Write ──────────────────────────────────────────────────────────────
@@ -532,7 +541,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     const primaryModel = MODEL_MAPPING[model] || 'nvidia/llama-3.3-nemotron-super-49b-v1.5';
     const modelChain = [primaryModel, ...FALLBACK_MODELS];
-    const limitedMessages = limitMessagesByTokens(messages, 100000);
+    const limitedMessages = limitMessagesByTokens(messages, 128000);
 
     const baseRequest = {
       messages: limitedMessages,
