@@ -53,7 +53,7 @@ const MODEL_MAPPING = {
   'gemini-turbo?': 'z-ai/glm-5.3-flash',
   'mistral-nemo':   'mistralai/mistral-nemotron',
   'google-light':   'google/gemma-4-31b-it',
-  'step-3.7-flash': 'stepfun-ai/step-3.7-flash',
+  'step-3.7-flash': 'stepfun-ai/step-5-preview',
   'glm-5.2':        'z-ai/glm-5.3',
   'm3': 'minimaxai/minimax-m3',
 };
