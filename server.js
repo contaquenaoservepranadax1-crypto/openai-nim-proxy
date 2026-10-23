@@ -55,7 +55,7 @@ const MODEL_MAPPING = {
   'google-light':   'google/gemma-4-31b-it',
   'step-3.7-flash': 'stepfun-ai/step-5-preview',
   'glm-5.2':        'z-ai/glm-5.3',
-  'm3': 'minimaxai/minimax-m3',
+  'm3': 'minimaxai/minimax-m3.1-flash',
 };
 
 // ─── Fallback Chain ──────────────────────────────────────────────────────────
