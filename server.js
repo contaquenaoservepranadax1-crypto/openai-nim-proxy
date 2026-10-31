@@ -51,7 +51,7 @@ const MODEL_MAPPING = {
   'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'gemini-turbo': 'deepseek-ai/deepseek-v4.1-flash',
   'gemini-turbo?': 'z-ai/glm-5.3-flash',
-  'mistral-nemo':   'mistralai/mistral-nemotron',
+  'mistral-nemo':   'mistralai/mistral-large-4-1t-a52b',
   'google-light':   'google/gemma-4-31b-it',
   'step-3.7-flash': 'stepfun-ai/step-5-preview',
   'glm-5.2':        'z-ai/glm-5.3',
