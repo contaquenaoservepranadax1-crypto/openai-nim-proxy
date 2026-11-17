@@ -48,7 +48,7 @@ const MODEL_MAPPING = {
   'gpt-4o':         'meta/llama-3.3-70b-instruct',
   'claude-3-opus':  'openai/gpt-oss-120b',
   'claude-3-sonnet':'openai/gpt-oss-20b',
-  'gemini-pro':     'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'gemini-pro':     'nvidia/nemotron-3.5-super-vl-120b-a12b',
   'gemini-turbo': 'deepseek-ai/deepseek-v4.1-flash',
   'gemini-turbo?': 'z-ai/glm-5.3-flash',
   'mistral-nemo':   'mistralai/mistral-large-4-1t-a52b',
