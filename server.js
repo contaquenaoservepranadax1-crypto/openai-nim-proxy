@@ -26,8 +26,13 @@ const VALIDATION_TIMEOUT_MS = 15000;
 const MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
 const MAX_TOKENS_LIMIT = 65536;
 
+// Limite global de contexto (tokens de entrada). O limite real por modelo
+// é controlado no site (ex: Saucepan). Pode ser alterado via variável de ambiente.
+const MAX_CONTEXT_TOKENS = parseInt(process.env.MAX_CONTEXT_TOKENS || '500000', 10);
+
 if (SHOW_REASONING) console.log('[CONFIG] Reasoning display: ENABLED');
 if (ENABLE_THINKING_MODE) console.log('[CONFIG] Thinking mode: ENABLED');
+console.log(`[CONFIG] Max context tokens: ${MAX_CONTEXT_TOKENS}`);
 
 // ─── Config Validation ───────────────────────────────────────────────────────
 
@@ -372,7 +377,7 @@ function escapeHtml(text) {
 
 // ─── Token Limiter ───────────────────────────────────────────────────────────
 
-function limitMessagesByTokens(messages, maxTokens = 128000) {
+function limitMessagesByTokens(messages, maxTokens = MAX_CONTEXT_TOKENS) {
   if (!messages || messages.length === 0) return messages;
 
   // Mensagens de system (prompt do bot, persona, etc.) são sempre preservadas
@@ -541,7 +546,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     const primaryModel = MODEL_MAPPING[model] || 'nvidia/llama-3.3-nemotron-super-49b-v1.5';
     const modelChain = [primaryModel, ...FALLBACK_MODELS];
-    const limitedMessages = limitMessagesByTokens(messages, 128000);
+    const limitedMessages = limitMessagesByTokens(messages, MAX_CONTEXT_TOKENS);
 
     const baseRequest = {
       messages: limitedMessages,
