@@ -239,6 +239,12 @@ function getReasoningPayload(model, enableThinking, clientReasoningEffort, hasTo
       return { chat_template_kwargs: { thinking: true } };
     }
 
+    case 'moonshotai/kimi-k3.1-pro': {
+      // Tenta desligar o raciocínio do Kimi (menos voltas, mais tokens para a resposta).
+      // Se a NIM devolver erro 400, remova este case.
+      return { chat_template_kwargs: { thinking: false } };
+    }
+
     default:
       return {};
   }
@@ -636,7 +642,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           }
         }
 
-        const finalContent = fullReasoning.length > 0
+        const finalContent = SHOW_REASONING && fullReasoning.length > 0
           ? `<think>${fullReasoning}</think>\n\n${fullContent}`
           : fullContent;
 
